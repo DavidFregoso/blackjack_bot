@@ -10,10 +10,14 @@ class DecisionOrchestrator:
     Coordina política de juego, apuestas y gestión de riesgo
     """
     
-    def __init__(self, initial_bankroll: float = 10000):
+    def __init__(
+        self,
+        initial_bankroll: float = 10000,
+        config_path: str = "configs/decision.json",
+    ):
         self.play_policy = PlayPolicy()
-        self.bet_policy = BetPolicy()
-        self.risk_manager = RiskManager()
+        self.bet_policy = BetPolicy(config_path=config_path)
+        self.risk_manager = RiskManager(config_path=config_path)
         
         self.risk_manager.initialize(initial_bankroll)
         
@@ -89,6 +93,7 @@ class DecisionOrchestrator:
         risk_state, risk_msg, risk_factor = self.risk_manager.evaluate_risk()
         
         if risk_state in [RiskState.STOPPED, RiskState.COOLDOWN]:
+            self.next_bet = 0
             return {
                 'units': 0,
                 'amount': 0,
@@ -96,9 +101,10 @@ class DecisionOrchestrator:
                 'risk_state': risk_state.value,
                 'should_sit': True
             }
-        
+
         # Verificar si debemos sentarnos por TC bajo
         if self.bet_policy.should_sit_out(self.current_tc):
+            self.next_bet = 0
             return {
                 'units': 0,
                 'amount': 0,
@@ -113,16 +119,20 @@ class DecisionOrchestrator:
             self.risk_manager.current_bankroll,
             risk_factor
         )
-        
+
         units = bet_amount / self.bet_policy.base_unit if self.bet_policy.base_unit > 0 else 0
-        
-        return {
+
+        bet_decision = {
             'units': units,
             'amount': bet_amount,
             'rationale': rationale,
             'risk_state': risk_state.value,
             'should_sit': False
         }
+
+        self.next_bet = bet_amount
+
+        return bet_decision
     
     def update_result(self, won: bool, amount: float):
         """
@@ -194,5 +204,4 @@ class DecisionOrchestrator:
             'rounds_lost': self.rounds_lost,
             'win_rate': win_rate
         })
-        
         return status
