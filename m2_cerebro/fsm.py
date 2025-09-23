@@ -120,12 +120,14 @@ class GameFSM:
         if event.event_type == EventType.STATE_TEXT:
             # Extraer texto de fase
             phase_text = event.data.get('phase', '').lower().replace(' ', '_')
-            
+
             # Buscar en mapeo
             new_phase = self.phase_map.get(phase_text)
-            
-            if new_phase and self.transition(new_phase):
-                return new_phase
+
+            # No hacer nada si ya estamos en esa fase
+            if new_phase and new_phase != self.current_phase:
+                if self.transition(new_phase):
+                    return new_phase
         
         elif event.event_type == EventType.ROUND_START:
             if self.transition(GamePhase.BETS_OPEN):
