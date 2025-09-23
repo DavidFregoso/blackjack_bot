@@ -1,0 +1,183 @@
+{
+  "description": "Ronda con muchas cartas bajas para simular conteo alto",
+  "events": [
+    {
+      "timestamp": 1726158300.000,
+      "event_type": "ROUND_START",
+      "round_id": "high_count_001",
+      "data": {
+        "round_id": "high_count_001"
+      }
+    },
+    {
+      "timestamp": 1726158301.000,
+      "event_type": "STATE_TEXT",
+      "round_id": "high_count_001",
+      "data": {
+        "phase": "bets_open",
+        "text": "Place your bets"
+      }
+    },
+    {
+      "timestamp": 1726158305.000,
+      "event_type": "STATE_TEXT",
+      "round_id": "high_count_001",
+      "data": {
+        "phase": "dealing",
+        "text": "Dealing cards"
+      }
+    },
+    {
+      "timestamp": 1726158306.000,
+      "event_type": "CARD_DEALT_SHARED",
+      "round_id": "high_count_001",
+      "data": {
+        "cards": ["3H", "3C"],
+        "who": "player_shared"
+      }
+    },
+    {
+      "timestamp": 1726158307.000,
+      "event_type": "CARD_DEALT",
+      "round_id": "high_count_001",
+      "data": {
+        "card": "4D",
+        "who": "dealer_up"
+      }
+    },
+    {
+      "timestamp": 1726158308.000,
+      "event_type": "STATE_TEXT",
+      "round_id": "high_count_001",
+      "data": {
+        "phase": "player_action",
+        "text": "Your turn"
+      }
+    },
+    {
+      "timestamp": 1726158309.000,
+      "event_type": "MY_DECISION_LOCKED",
+      "round_id": "high_count_001",
+      "data": {
+        "action": "HIT"
+      }
+    },
+    {
+      "timestamp": 1726158310.000,
+      "event_type": "CARD_DEALT_SHARED",
+      "round_id": "high_count_001",
+      "data": {
+        "cards": ["5S"],
+        "who": "player_shared"
+      }
+    },
+    {
+      "timestamp": 1726158311.000,
+      "event_type": "MY_DECISION_LOCKED",
+      "round_id": "high_count_001",
+      "data": {
+        "action": "DOUBLE"
+      }
+    },
+    {
+      "timestamp": 1726158312.000,
+      "event_type": "CARD_DEALT_SHARED",
+      "round_id": "high_count_001",
+      "data": {
+        "cards": ["6H"],
+        "who": "player_shared"
+      }
+    },
+    {
+      "timestamp": 1726158313.000,
+      "event_type": "STATE_TEXT",
+      "round_id": "high_count_001",
+      "data": {
+        "phase": "others_action",
+        "text": "Others playing"
+      }
+    },
+    {
+      "timestamp": 1726158314.000,
+      "event_type": "CARD_DEALT",
+      "round_id": "high_count_001",
+      "data": {
+        "card": "2S",
+        "who": "others_overlay"
+      }
+    },
+    {
+      "timestamp": 1726158315.000,
+      "event_type": "CARD_DEALT",
+      "round_id": "high_count_001",
+      "data": {
+        "card": "2C",
+        "who": "others_overlay"
+      }
+    },
+    {
+      "timestamp": 1726158316.000,
+      "event_type": "CARD_DEALT",
+      "round_id": "high_count_001",
+      "data": {
+        "card": "4S",
+        "who": "others_overlay"
+      }
+    },
+    {
+      "timestamp": 1726158317.000,
+      "event_type": "CARD_DEALT",
+      "round_id": "high_count_001",
+      "data": {
+        "card": "5C",
+        "who": "others_overlay"
+      }
+    },
+    {
+      "timestamp": 1726158318.000,
+      "event_type": "STATE_TEXT",
+      "round_id": "high_count_001",
+      "data": {
+        "phase": "dealer_action",
+        "text": "Dealer playing"
+      }
+    },
+    {
+      "timestamp": 1726158319.000,
+      "event_type": "CARD_DEALT",
+      "round_id": "high_count_001",
+      "data": {
+        "card": "6D",
+        "who": "dealer_hole_reveal"
+      }
+    },
+    {
+      "timestamp": 1726158320.000,
+      "event_type": "CARD_DEALT",
+      "round_id": "high_count_001",
+      "data": {
+        "card": "TH",
+        "who": "dealer_draw"
+      }
+    },
+    {
+      "timestamp": 1726158321.000,
+      "event_type": "STATE_TEXT",
+      "round_id": "high_count_001",
+      "data": {
+        "phase": "payouts",
+        "text": "Dealer has 20, Player has 17"
+      }
+    },
+    {
+      "timestamp": 1726158323.000,
+      "event_type": "ROUND_END",
+      "round_id": "high_count_001",
+      "data": {
+        "result": "loss",
+        "amount": 50,
+        "reason": "dealer_wins"
+      }
+    }
+  ]
+}

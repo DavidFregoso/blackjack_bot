@@ -1,0 +1,60 @@
+{
+  "counting_mode": "hilo",
+  "tc_rounding_play": "floor",
+  "tc_rounding_bet": "decimal",
+  
+  "risk": {
+    "stop_loss_abs": 1000,
+    "stop_loss_pct": 0.5,
+    "stop_win_abs": 2000,
+    "stop_win_pct": 1.0,
+    "max_drawdown_pct": 0.3,
+    "cooldown_seconds": 300,
+    "max_consecutive_losses": 5
+  },
+  
+  "cadence": {
+    "skip_negative_tc": -1.0,
+    "play_every_n_rounds": 1,
+    "min_rounds_between_bets": 0,
+    "max_session_rounds": 200,
+    "session_time_limit_min": 120,
+    "wong_in_tc": 1.0,
+    "wong_out_tc": -1.0
+  },
+  
+  "bet_policy": {
+    "type": "ramp",
+    "ramp": {
+      "-2": 0,
+      "-1": 1,
+      "0": 1,
+      "1": 2,
+      "2": 4,
+      "3": 6,
+      "4": 8,
+      "5": 10,
+      "6": 12
+    },
+    "kelly": {
+      "fraction": 0.25,
+      "min_advantage": 0.005,
+      "max_bet_pct": 0.05
+    }
+  },
+  
+  "limits": {
+    "table_min": 25,
+    "table_max": 1000,
+    "unit_value": 25,
+    "max_units": 12
+  },
+  
+  "actions_enabled": {
+    "double": true,
+    "split": true,
+    "surrender": false,
+    "insurance": false,
+    "even_money": false
+  }
+}

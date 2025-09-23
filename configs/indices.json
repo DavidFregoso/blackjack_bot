@@ -1,0 +1,106 @@
+{
+  "illustrious_18": {
+    "insurance": {
+      "tc_threshold": 3,
+      "action": "take"
+    },
+    "16_vs_10": {
+      "tc_threshold": 0,
+      "action": "stand"
+    },
+    "15_vs_10": {
+      "tc_threshold": 4,
+      "action": "stand"
+    },
+    "TT_vs_5": {
+      "tc_threshold": 5,
+      "action": "split"
+    },
+    "TT_vs_6": {
+      "tc_threshold": 4,
+      "action": "split"
+    },
+    "10_vs_10": {
+      "tc_threshold": 4,
+      "action": "double"
+    },
+    "12_vs_3": {
+      "tc_threshold": 2,
+      "action": "stand"
+    },
+    "12_vs_2": {
+      "tc_threshold": 3,
+      "action": "stand"
+    },
+    "11_vs_A": {
+      "tc_threshold": 1,
+      "action": "double"
+    },
+    "9_vs_2": {
+      "tc_threshold": 1,
+      "action": "double"
+    },
+    "10_vs_A": {
+      "tc_threshold": 4,
+      "action": "double"
+    },
+    "9_vs_7": {
+      "tc_threshold": 3,
+      "action": "double"
+    },
+    "16_vs_9": {
+      "tc_threshold": 5,
+      "action": "stand"
+    },
+    "13_vs_2": {
+      "tc_threshold": -1,
+      "action": "hit"
+    },
+    "12_vs_4": {
+      "tc_threshold": 0,
+      "action": "stand"
+    },
+    "12_vs_5": {
+      "tc_threshold": -2,
+      "action": "hit"
+    },
+    "12_vs_6": {
+      "tc_threshold": -1,
+      "action": "hit"
+    },
+    "13_vs_3": {
+      "tc_threshold": -2,
+      "action": "hit"
+    }
+  },
+  
+  "fab_4": {
+    "14_vs_10": {
+      "tc_threshold": 3,
+      "action": "surrender"
+    },
+    "15_vs_10": {
+      "tc_threshold": 0,
+      "action": "surrender"
+    },
+    "15_vs_A": {
+      "tc_threshold": 1,
+      "action": "surrender"
+    },
+    "15_vs_9": {
+      "tc_threshold": 2,
+      "action": "surrender"
+    }
+  },
+  
+  "custom": {
+    "A7_vs_2": {
+      "tc_threshold": 1,
+      "action": "double"
+    },
+    "A8_vs_6": {
+      "tc_threshold": 1,
+      "action": "double"
+    }
+  }
+}

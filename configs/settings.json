@@ -1,0 +1,36 @@
+{
+  "rules": {
+    "decks": 8,
+    "s17": true,
+    "das": true,
+    "split_limit": 1,
+    "surrender": false,
+    "insurance": true,
+    "blackjack_payout": 1.5
+  },
+  "counting": {
+    "system": "hilo",
+    "dual_mode": false,
+    "tc_rounding_play": "floor",
+    "tc_rounding_bet": "decimal"
+  },
+  "vision": {
+    "rois": {
+      "dealer": [300, 100, 200, 150],
+      "shared": [250, 300, 300, 150],
+      "others": [100, 300, 150, 150],
+      "text": [0, 0, 800, 50]
+    },
+    "thresholds": {
+      "card_confidence": 0.85,
+      "ocr_confidence": 0.80,
+      "motion_threshold": 10
+    },
+    "k_frames_confirm": 3
+  },
+  "safety": {
+    "min_confidence": 0.75,
+    "max_retries": 3,
+    "timeout_ms": 5000
+  }
+}
