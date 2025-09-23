@@ -90,19 +90,16 @@ class Card:
     
     @property
     def count_value_zen(self) -> int:
-        if self.rank in '23':
+        if self.rank in '237':
             return 1
         elif self.rank in '456':
             return 2
-        elif self.rank == '7':
-            return 1
         elif self.rank in '89':
             return 0
-        elif self.rank in 'TJQK':
-            return -2
         elif self.rank == 'A':
             return -1
-        return 0
+        else:
+            return -2
 
 @dataclass
 class Hand:
