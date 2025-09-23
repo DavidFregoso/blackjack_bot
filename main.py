@@ -9,6 +9,7 @@ from utils.contratos import Event, EventType, Card
 from m2_cerebro.contador import CardCounter
 from m2_cerebro.estado_juego import GameState
 from m3_decision.orquestador import DecisionOrchestrator
+from m3_decision.gestion_riesgo import RiskState
 from simulador.simulador_m1 import M1Simulator
 
 
@@ -20,18 +21,20 @@ class BlackjackSystem:
         rounds: int = 1000,
         penetration: float = 0.75,
         verbose: bool = False,
+        config_path: str = "configs/decision.json",
     ):
         self.verbose = verbose
         self.counting_system = counting_system.lower()
+        self.penetration = penetration
+        self.config_path = config_path
 
         self.counter = CardCounter(system=self.counting_system)
         self.game_state = GameState()
-        self.decision_maker = DecisionOrchestrator(initial_bankroll)
-        self.m1_sim = M1Simulator(
-            num_decks=self.counter.decks,
-            penetration=penetration,
-            max_rounds=rounds,
+        self.decision_maker = DecisionOrchestrator(
+            initial_bankroll=initial_bankroll,
+            config_path=config_path,
         )
+        self.m1_sim = M1Simulator(max_rounds=rounds)
 
     def _parse_card(self, card_str: str) -> Card:
         rank = card_str[:-1]
@@ -91,12 +94,11 @@ class BlackjackSystem:
         print(f"🚀 Iniciando simulación con sistema: {self.counting_system.upper()}...")
         for event in self.m1_sim.generate_events():
             self.process_event(event)
-            if event.event_type == EventType.ROUND_END:
-                status = self.decision_maker.get_status()
-                if status.get('state') == 'stopped':
-                    if self.verbose:
-                        print("🛑 Gestión de riesgo detuvo la simulación.")
-                    break
+            risk_state, risk_msg, _ = self.decision_maker.risk_manager.evaluate_risk()
+            if risk_state == RiskState.STOPPED:
+                stop_message = risk_msg or "Gestión de riesgo detuvo la simulación."
+                print(f"🛑 SIMULACIÓN DETENIDA: {stop_message}")
+                break
 
         print("✅ Simulación completada.")
         return self.decision_maker.get_status()

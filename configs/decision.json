@@ -5,12 +5,12 @@
   
   "risk": {
     "stop_loss_abs": 1000,
-    "stop_loss_pct": 0.5,
+    "stop_loss_pct": 0.2,
     "stop_win_abs": 2000,
     "stop_win_pct": 1.0,
     "max_drawdown_pct": 0.3,
     "cooldown_seconds": 300,
-    "max_consecutive_losses": 5
+    "max_consecutive_losses": 8
   },
   
   "cadence": {
