@@ -25,7 +25,7 @@ class DecisionOrchestrator:
         
     def process_count_update(self, tc_snapshot: Dict):
         """Procesa actualización de conteo desde M2"""
-        self.current_tc = tc_snapshot.get('tc_pre', 0.0)
+        self.current_tc = tc_snapshot.get('tc_current', tc_snapshot.get('tc_pre', 0.0))
     
     def decide_play(self, hand_value: int, is_soft: bool, 
                    dealer_up: int, can_double: bool = True, 
