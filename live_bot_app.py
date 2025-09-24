@@ -6,7 +6,7 @@ import json
 import threading
 import time
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple
 
 import cv2
 import numpy as np
@@ -668,15 +668,38 @@ class BotOrchestrator:
 
         try:
             amount = float(bet_decision.get("amount", 0))
-            chip_action = self._select_bet_chip(amount)
+            if amount <= 0:
+                socketio.emit(
+                    "status_update",
+                    {"log": "No se requiere apuesta para esta ronda", "status": "Sentado"},
+                )
+                return
+
+            chip_plan = self._plan_bet_clicks(amount)
+            payload = {
+                "amount": amount,
+                "units": bet_decision.get("units"),
+            }
+
+            if chip_plan:
+                payload["chip_plan"] = chip_plan
+                payload["chip_type"] = chip_plan[0]["chip_type"]
+            else:
+                chip_action = self._select_bet_chip(amount)
+                if not chip_action:
+                    socketio.emit(
+                        "status_update",
+                        {
+                            "log": "No hay fichas calibradas para realizar la apuesta",
+                            "status": "Error de apuesta",
+                        },
+                    )
+                    return
+                payload["chip_type"] = chip_action
 
             action_request = {
                 "type": "BET",
-                "payload": {
-                    "amount": amount,
-                    "units": bet_decision.get("units"),
-                    "chip_type": chip_action,
-                },
+                "payload": payload,
             }
 
             confirmation = self.execute_with_verification(action_request)
@@ -723,6 +746,44 @@ class BotOrchestrator:
             if amount >= value:
                 selected = key
         return selected
+
+    def _plan_bet_clicks(self, amount: float) -> List[Dict[str, int]]:
+        """Calcula un plan de clics en fichas para alcanzar el monto indicado."""
+        if not self.actuator or amount <= 0:
+            return []
+
+        chip_entries: List[Tuple[int, str]] = []
+        for key in self.actuator.action_map.keys():
+            if not key.startswith("BET_"):
+                continue
+            digits = "".join(filter(str.isdigit, key))
+            if not digits:
+                continue
+            try:
+                value = int(digits)
+            except ValueError:
+                continue
+            chip_entries.append((value, key))
+
+        if not chip_entries:
+            return []
+
+        chip_entries.sort(reverse=True)
+        remaining = int(round(amount))
+        plan: List[Dict[str, int]] = []
+
+        for value, key in chip_entries:
+            if value <= 0:
+                continue
+            count = remaining // value
+            if count > 0:
+                plan.append({"chip_type": key, "count": count})
+                remaining -= value * count
+
+        if remaining != 0:
+            return []
+
+        return plan
 
     def _update_bankroll_if_needed(self, event: Event) -> None:
         """Actualiza el bankroll si hay ROI disponible y el evento lo amerita."""

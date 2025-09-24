@@ -8,4 +8,5 @@ Poblar este directorio con los siguientes archivos de imagen, recortados de la i
 - [ ] `hit_button.png` (El botón verde `+` de "PEDIR")
 - [ ] `stand_button.png` (El botón rojo `Ø` de "PLANTARSE")
 - [ ] `double_button.png` (El botón amarillo `x2` de "DOBLAR")
-- [ ] `chip_20.png` (La ficha morada de `20`)
+- [ ] `chip_25.png` (Ficha principal de apuesta mínima)
+- [ ] `chip_100.png` (Ficha de apuesta alta para escalado rápido)
