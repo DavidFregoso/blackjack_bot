@@ -11,6 +11,9 @@ import platform
 import shutil
 from pathlib import Path
 
+from utils import tesseract_helper
+
+
 def print_step(message, step_num=None):
     """Imprime un paso de instalación con formato"""
     if step_num:
@@ -20,14 +23,16 @@ def print_step(message, step_num=None):
     else:
         print(f"   {message}")
 
+
 def run_command(command, description, critical=True):
     """Ejecuta un comando del sistema"""
     print(f"   ▶️ {description}")
     print(f"   💻 Ejecutando: {command}")
-    
+
     try:
-        result = subprocess.run(command, shell=True, check=True, 
-                              capture_output=True, text=True)
+        result = subprocess.run(
+            command, shell=True, check=True, capture_output=True, text=True
+        )
         print(f"   ✅ {description} - Completado")
         return True
     except subprocess.CalledProcessError as e:
@@ -39,11 +44,12 @@ def run_command(command, description, critical=True):
             sys.exit(1)
         return False
 
+
 def check_python_version():
     """Verifica la versión de Python"""
     version = sys.version_info
     print(f"   🐍 Python detectado: {version.major}.{version.minor}.{version.micro}")
-    
+
     if version.major < 3 or (version.major == 3 and version.minor < 8):
         print("   ❌ Se requiere Python 3.8 o superior")
         print("   📥 Descarga desde: https://www.python.org/downloads/")
@@ -51,44 +57,158 @@ def check_python_version():
     else:
         print("   ✅ Versión de Python compatible")
 
+
 def detect_platform():
     """Detecta el sistema operativo"""
     system = platform.system().lower()
     print(f"   💻 Sistema operativo: {system}")
     return system
 
+
+def _command_available(command: str) -> bool:
+    """Comprueba si un comando existe en el entorno actual."""
+
+    return shutil.which(command) is not None
+
+
+def _prompt_yes_no(message: str, default: bool = True) -> bool:
+    """Solicita confirmación al usuario con una respuesta sí/no."""
+
+    prompt = " [S/n]: " if default else " [s/N]: "
+    valid_yes = {"s", "si", "sí", "y", "yes"}
+    valid_no = {"n", "no"}
+
+    while True:
+        response = input(f"   {message}{prompt}").strip().lower()
+        if not response:
+            return default
+        if response in valid_yes:
+            return True
+        if response in valid_no:
+            return False
+        print("   🔁 Responde con 's' o 'n'.")
+
+
+def _post_installation_check(origin: str) -> bool:
+    """Verifica si Tesseract quedó instalado tras ejecutar un instalador."""
+
+    configured, executable, source = tesseract_helper.configure_pytesseract()
+    if configured and executable:
+        detected_from = source or origin
+        print(f"   ✅ Tesseract detectado ({detected_from}: {executable})")
+        shell_hint = "PowerShell" if platform.system().lower() == "windows" else "la terminal"
+        print(
+            f"   📌 Si el comando 'tesseract --version' no funciona aún, abre una nueva ventana de {shell_hint}."
+        )
+        return True
+
+    print("   ⚠️ No se detectó automáticamente Tesseract tras la instalación.")
+    print(
+        "   💡 Puedes proporcionar la ruta manualmente cuando se te solicite o reiniciar la terminal."
+    )
+    return False
+
+
+def _print_windows_manual_instructions() -> None:
+    """Muestra las instrucciones manuales de instalación para Windows."""
+
+    print("   📋 WINDOWS - Instalación manual:")
+    print("   1. Descargar: https://github.com/UB-Mannheim/tesseract/wiki")
+    print("   2. Instalar en: C:/Program Files/Tesseract-OCR/")
+    print("   3. Asegurarte de que la opción 'Add to PATH' esté marcada")
+    print("   4. Si no quedó en el PATH, agrega la carpeta con:")
+    print("      setx PATH \"$($env:PATH);C:\\Program Files\\Tesseract-OCR\\\"")
+    print("   5. Cierra y vuelve a abrir PowerShell, luego ejecuta: tesseract --version")
+    print(
+        "   📚 Para soporte en español, copia 'spa.traineddata' en C:/Program Files/Tesseract-OCR/tessdata/"
+    )
+    input("   ⏳ Presiona ENTER cuando hayas completado la instalación...")
+
+
+def _install_tesseract_windows() -> bool:
+    """Gestiona la instalación de Tesseract en sistemas Windows."""
+
+    installed = False
+
+    if _command_available("winget"):
+        print("   📦 Winget detectado en el sistema.")
+        if _prompt_yes_no("¿Deseas instalar Tesseract automáticamente con winget?", True):
+            installed = run_command(
+                "winget install -e --id UB-Mannheim.TesseractOCR --accept-package-agreements --accept-source-agreements",
+                "Instalando Tesseract con winget",
+                critical=False,
+            )
+            if installed and _post_installation_check("winget"):
+                return True
+
+    if not installed and _command_available("choco"):
+        print("   📦 Chocolatey detectado en el sistema.")
+        if _prompt_yes_no("¿Deseas instalar Tesseract automáticamente con Chocolatey?", True):
+            installed = run_command(
+                "choco install tesseract --yes",
+                "Instalando Tesseract con Chocolatey",
+                critical=False,
+            )
+            if installed and _post_installation_check("chocolatey"):
+                return True
+
+    _print_windows_manual_instructions()
+    return _post_installation_check("instalación manual")
+
+
 def install_tesseract():
     """Instala Tesseract OCR según el sistema operativo"""
+
     system = detect_platform()
-    
+
+    configured, executable, source = tesseract_helper.configure_pytesseract()
+    if configured and executable:
+        origin = source or "ruta detectada"
+        print(f"   ✅ Tesseract ya se encuentra instalado ({origin}: {executable})")
+        return
+
     if system == "windows":
-        print("   📋 WINDOWS - Instalación manual requerida:")
-        print("   1. Descargar: https://github.com/UB-Mannheim/tesseract/wiki")
-        print("   2. Instalar en: C:\\Program Files\\Tesseract-OCR\\")
-        print("   3. Agregar al PATH del sistema")
-        input("   ⏳ Presiona ENTER cuando hayas completado la instalación...")
-        
+        if _install_tesseract_windows():
+            return
+
     elif system == "darwin":  # macOS
         if run_command("which brew", "Verificando Homebrew", critical=False):
-            run_command("brew install tesseract", "Instalando Tesseract via Homebrew")
+            if run_command("brew install tesseract", "Instalando Tesseract via Homebrew", critical=False):
+                _post_installation_check("homebrew")
         else:
             print("   📋 macOS - Opciones de instalación:")
-            print("   1. Instalar Homebrew: /bin/bash -c \"$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)\"")
+            print(
+                '   1. Instalar Homebrew: /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"'
+            )
             print("   2. Luego ejecutar: brew install tesseract")
             input("   ⏳ Presiona ENTER cuando hayas completado la instalación...")
-            
+
     elif system == "linux":
         # Detectar distribución
         if Path("/etc/apt/sources.list").exists():  # Debian/Ubuntu
-            run_command("sudo apt-get update", "Actualizando paquetes")
-            run_command("sudo apt-get install -y tesseract-ocr", "Instalando Tesseract")
+            if run_command("sudo apt-get update", "Actualizando paquetes", critical=False):
+                installed = run_command(
+                    "sudo apt-get install -y tesseract-ocr",
+                    "Instalando Tesseract",
+                    critical=False,
+                )
+                if installed:
+                    _post_installation_check("apt")
         elif Path("/etc/redhat-release").exists():  # RedHat/CentOS
-            run_command("sudo yum install -y tesseract", "Instalando Tesseract")
+            installed = run_command(
+                "sudo yum install -y tesseract",
+                "Instalando Tesseract",
+                critical=False,
+            )
+            if installed:
+                _post_installation_check("yum")
         else:
             print("   📋 LINUX - Instalar manualmente:")
             print("   Ubuntu/Debian: sudo apt-get install tesseract-ocr")
             print("   CentOS/RHEL: sudo yum install tesseract")
             input("   ⏳ Presiona ENTER cuando hayas completado la instalación...")
+
+
 
 def create_directories():
     """Crea la estructura de directorios necesaria"""
@@ -97,16 +217,17 @@ def create_directories():
         "m1_ingesta/templates/ranks",
         "m1_ingesta/templates/suits",
         "logs",
-        "configs"
+        "configs",
     ]
-    
+
     for directory in directories:
         Path(directory).mkdir(parents=True, exist_ok=True)
         print(f"   📁 Creado: {directory}")
 
+
 def create_startup_scripts():
     """Crea scripts de inicio para diferentes sistemas"""
-    
+
     # Script para Windows
     windows_script = """@echo off
 echo 🎰 Iniciando Blackjack Bot...
@@ -114,10 +235,10 @@ echo ================================
 python live_bot_app.py
 pause
 """
-    
+
     with open("start_bot.bat", "w", encoding="utf-8") as f:
         f.write(windows_script)
-    
+
     # Script para Unix/Linux/macOS
     unix_script = """#!/bin/bash
 echo "🎰 Iniciando Blackjack Bot..."
@@ -125,17 +246,18 @@ echo "================================"
 python3 live_bot_app.py
 read -p "Presiona ENTER para cerrar..."
 """
-    
+
     with open("start_bot.sh", "w", encoding="utf-8") as f:
         f.write(unix_script)
-    
+
     # Hacer ejecutable en Unix
     try:
         os.chmod("start_bot.sh", 0o755)
     except:
         pass
-    
+
     print("   📜 Scripts de inicio creados: start_bot.bat, start_bot.sh")
+
 
 def test_installation():
     """Prueba la instalación"""
@@ -149,9 +271,9 @@ def test_installation():
         ("pyautogui", "PyAutoGUI para automatización"),
         ("pytesseract", "Tesseract OCR"),
     ]
-    
+
     failed_imports = []
-    
+
     for module, description in test_imports:
         try:
             __import__(module)
@@ -159,7 +281,7 @@ def test_installation():
         except ImportError:
             print(f"   ❌ {description}")
             failed_imports.append(module)
-    
+
     if failed_imports:
         print(f"\n   ⚠️ Módulos fallidos: {', '.join(failed_imports)}")
         return False
@@ -167,100 +289,54 @@ def test_installation():
     return verify_tesseract_installation()
 
 
-def find_tesseract_executable():
-    """Intenta localizar el ejecutable de Tesseract en el sistema."""
-    detected_path = shutil.which("tesseract")
-    if detected_path:
-        return detected_path, True
+def _relative_path(path: Path) -> str:
+    """Devuelve una representación amigable de una ruta."""
 
-    system = platform.system().lower()
+    try:
+        return str(path.relative_to(Path.cwd()))
+    except ValueError:
+        return str(path)
 
-    candidates = []
-    if system == "windows":
-        # Rutas comunes instaladas por el instalador oficial
-        candidates.extend(
-            [
-                Path(r"C:\\Program Files\\Tesseract-OCR"),
-                Path(r"C:\\Program Files (x86)\\Tesseract-OCR"),
-            ]
-        )
 
-        # Directorios informados mediante variables de entorno (mejora para instalaciones no estándar)
-        env_vars = ["PROGRAMFILES", "PROGRAMFILES(X86)", "PROGRAMW6432", "LOCALAPPDATA"]
-        for var in env_vars:
-            base_dir = os.environ.get(var)
-            if base_dir:
-                candidates.append(Path(base_dir) / "Tesseract-OCR")
+def _prompt_manual_tesseract_configuration() -> bool:
+    """Permite que la persona usuaria introduzca manualmente la ruta a Tesseract."""
 
-        # Instalaciones por usuario
-        user_candidates = [
-            Path.home() / "AppData" / "Local" / "Programs" / "Tesseract-OCR",
-            Path.home() / "AppData" / "Local" / "Tesseract-OCR",
-        ]
-        candidates.extend(user_candidates)
+    print("   📥 Proporciona la ruta al ejecutable de Tesseract si ya lo instalaste.")
+    print("   💡 Ejemplo: C:/Program Files/Tesseract-OCR/tesseract.exe")
+    print(
+        "   💡 Puedes indicar la carpeta y el asistente completará el nombre del ejecutable."
+    )
+    print("   💡 Deja el campo vacío para omitir este paso.")
 
-        # Consultar el registro de Windows cuando esté disponible
-        try:
-            import winreg  # type: ignore
+    while True:
+        user_input = input("   Ruta a Tesseract (ENTER para omitir): ").strip()
+        if not user_input:
+            print("   ⚠️ Se omitió la configuración manual de Tesseract.")
+            return False
 
-            registry_keys = [
-                (winreg.HKEY_LOCAL_MACHINE, r"SOFTWARE\Tesseract-OCR"),
-                (winreg.HKEY_LOCAL_MACHINE, r"SOFTWARE\WOW6432Node\Tesseract-OCR"),
-                (winreg.HKEY_CURRENT_USER, r"SOFTWARE\Tesseract-OCR"),
-            ]
-            for hive, key_path in registry_keys:
-                try:
-                    with winreg.OpenKey(hive, key_path) as key:
-                        install_dir, _ = winreg.QueryValueEx(key, "InstallDir")
-                        if install_dir:
-                            candidates.append(Path(install_dir))
-                except OSError:
-                    continue
-        except ImportError:
-            # El módulo `winreg` solo existe en Windows; ignorar cuando no esté disponible
-            pass
+        candidate = tesseract_helper.validate_tesseract_path(user_input)
+        if candidate is None:
+            print(
+                "   ❌ No se encontró un ejecutable válido en la ruta indicada. Intenta nuevamente."
+            )
+            continue
 
-        # Convertir las rutas de carpeta en candidatos al ejecutable
-        exe_candidates = []
-        for candidate in candidates:
-            candidate_path = Path(candidate)
-            if candidate_path.is_file() and candidate_path.name.lower() == "tesseract.exe":
-                exe_candidates.append(candidate_path)
-            else:
-                exe_candidates.append(candidate_path / "tesseract.exe")
+        stored_path = tesseract_helper.store_tesseract_path(candidate)
+        configured, _, _ = tesseract_helper.configure_pytesseract()
+        if configured:
+            print(
+                f"   ✅ Ruta guardada en { _relative_path(tesseract_helper.TESSERACT_PATH_FILE) }"
+            )
+            print(f"   🔧 Tesseract configurado desde: {stored_path}")
+            return True
 
-        # Buscar el ejecutable en los candidatos detectados
-        for exe_candidate in exe_candidates:
-            if exe_candidate.exists():
-                return str(exe_candidate), False
-
-        # Último intento: buscar en subdirectorios inmediatos para instalaciones personalizadas
-        for base_dir in {Path(c) for c in candidates if Path(c).exists()}:
-            try:
-                for exe_candidate in base_dir.glob("**/tesseract.exe"):
-                    return str(exe_candidate), False
-            except Exception:
-                continue
-    elif system == "darwin":
-        candidates = [
-            "/opt/homebrew/bin/tesseract",
-            "/usr/local/bin/tesseract"
-        ]
-    else:  # linux y otros
-        candidates = [
-            "/usr/bin/tesseract",
-            "/usr/local/bin/tesseract"
-        ]
-
-    for candidate in candidates:
-        if Path(candidate).exists():
-            return candidate, False
-
-    return None, False
+        print("   ❌ No fue posible configurar Tesseract con la ruta proporcionada.")
+        print("   🔁 Verifica los permisos del archivo e inténtalo nuevamente.")
 
 
 def verify_tesseract_installation():
     """Verifica y configura Tesseract si es necesario."""
+
     try:
         import pytesseract
     except ImportError:
@@ -268,24 +344,23 @@ def verify_tesseract_installation():
         print("   📋 El paquete 'pytesseract' no está instalado.")
         return False
 
-    executable_path, from_path = find_tesseract_executable()
-    if executable_path:
-        pytesseract.pytesseract.tesseract_cmd = executable_path
-        if not from_path:
-            tesseract_dir = str(Path(executable_path).parent)
-            current_path = os.environ.get("PATH", "")
-            if tesseract_dir not in current_path.split(os.pathsep):
-                os.environ["PATH"] = (
-                    tesseract_dir + os.pathsep + current_path if current_path else tesseract_dir
-                )
+    configured, executable_path, source = tesseract_helper.configure_pytesseract()
 
     try:
         version = pytesseract.get_tesseract_version()
         print(f"   ✅ Tesseract OCR funcionando (versión {version})")
-        if executable_path and not from_path:
-            print(f"   ℹ️ Se detectó Tesseract en: {executable_path}")
-            print("   🔧 Se agregó temporalmente esta ruta al PATH de la sesión actual.")
-            print("   📌 Agrega esta carpeta al PATH del sistema para evitar futuros problemas.")
+
+        if executable_path:
+            source_msg = source or "ruta detectada"
+            print(f"   ℹ️ {source_msg.capitalize()}: {executable_path}")
+            if source != "system PATH":
+                print(
+                    "   🔧 Se añadió temporalmente esta ruta al PATH de la sesión actual."
+                )
+                print(
+                    "   📌 Agrega la carpeta de Tesseract al PATH del sistema para evitar futuros problemas."
+                )
+
         return True
     except (pytesseract.TesseractNotFoundError, FileNotFoundError) as error:
         print("   ❌ Tesseract OCR no funciona correctamente")
@@ -296,47 +371,64 @@ def verify_tesseract_installation():
 
         system = platform.system().lower()
         if system == "windows":
-            print("   👉 Verifica que Tesseract esté instalado en 'C:/Program Files/Tesseract-OCR/' y que la carpeta esté en el PATH.")
+            print(
+                "   👉 Verifica que Tesseract esté instalado en 'C:/Program Files/Tesseract-OCR/' y que la carpeta esté en el PATH."
+            )
         elif system == "darwin":
             print("   👉 Instala Tesseract con Homebrew: brew install tesseract")
         else:
-            print("   👉 Instala Tesseract con el gestor de paquetes de tu distribución (por ejemplo, sudo apt-get install tesseract-ocr).")
+            print(
+                "   👉 Instala Tesseract con el gestor de paquetes de tu distribución (por ejemplo, sudo apt-get install tesseract-ocr)."
+            )
 
         print(f"   ❗ Detalle: {error}")
+
+        manual_configured = _prompt_manual_tesseract_configuration()
+        if manual_configured:
+            try:
+                version = pytesseract.get_tesseract_version()
+                print(f"   ✅ Tesseract OCR funcionando (versión {version})")
+                return True
+            except Exception as retry_error:
+                print("   ❌ Tesseract sigue sin responder correctamente")
+                print(f"   ❗ Detalle: {retry_error}")
+
         return False
     except Exception as error:
         print("   ❌ Ocurrió un error al verificar Tesseract OCR")
         print(f"   ❗ Detalle: {error}")
         return False
 
+
 def main():
     """Función principal de instalación"""
     print("🎰 INSTALADOR DEL BLACKJACK BOT v1.0")
     print("=====================================\n")
-    
+
     # Paso 1: Verificar Python
     print_step("Verificando Python", 1)
     check_python_version()
-    
+
     # Paso 2: Crear directorios
     print_step("Creando estructura de directorios", 2)
     create_directories()
-    
+
     # Paso 3: Instalar dependencias de Python
     print_step("Instalando dependencias de Python", 3)
-    run_command(f'"{sys.executable}" -m pip install --upgrade pip',
-                "Actualizando pip")
-    run_command(f'"{sys.executable}" -m pip install -r requirements.txt',
-                "Instalando dependencias desde requirements.txt")
-    
+    run_command(f'"{sys.executable}" -m pip install --upgrade pip', "Actualizando pip")
+    run_command(
+        f'"{sys.executable}" -m pip install -r requirements.txt',
+        "Instalando dependencias desde requirements.txt",
+    )
+
     # Paso 4: Instalar Tesseract OCR
     print_step("Instalando Tesseract OCR", 4)
     install_tesseract()
-    
+
     # Paso 5: Crear scripts de inicio
     print_step("Creando scripts de inicio", 5)
     create_startup_scripts()
-    
+
     # Paso 6: Probar instalación
     print_step("Probando instalación", 6)
     if test_installation():
@@ -352,6 +444,7 @@ def main():
         print("\n⚠️ INSTALACIÓN COMPLETADA CON ADVERTENCIAS")
         print("Algunos componentes pueden no funcionar correctamente.")
         print("Revisa los mensajes de error arriba.")
+
 
 if __name__ == "__main__":
     main()

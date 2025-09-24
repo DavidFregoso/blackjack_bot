@@ -12,6 +12,8 @@ from pathlib import Path
 import cv2  # noqa: F401 - utilizado para verificar disponibilidad de OpenCV
 import pyautogui
 
+from utils import tesseract_helper
+
 if importlib.util.find_spec("pytesseract"):
     import pytesseract
 else:  # pragma: no cover - depende de la instalación
@@ -73,10 +75,24 @@ def pre_flight_check() -> bool:
     # 4. Verificar OCR
     if pytesseract and Image:
         try:
-            sample = Image.new("RGB", (60, 20), color="white")
-            pytesseract.image_to_string(sample)
-            checks["ocr_working"] = True
-            print("✅ OCR funcionando")
+            configured, executable, source = tesseract_helper.configure_pytesseract()
+            if not configured:
+                print("❌ OCR no funciona - verificar instalación de Tesseract")
+                if executable:
+                    print(f"   ℹ️ Ruta detectada: {executable}")
+                try:
+                    config_hint = tesseract_helper.TESSERACT_PATH_FILE.relative_to(
+                        Path.cwd()
+                    )
+                except ValueError:
+                    config_hint = tesseract_helper.TESSERACT_PATH_FILE
+                print(f"   💡 Si conoces la ruta, guárdala en {config_hint}")
+            else:
+                sample = Image.new("RGB", (60, 20), color="white")
+                pytesseract.image_to_string(sample)
+                checks["ocr_working"] = True
+                origin = source or "ruta detectada"
+                print(f"✅ OCR funcionando ({origin})")
         except Exception:
             print("❌ OCR no funciona - verificar instalación de Tesseract")
     else:
@@ -105,5 +121,7 @@ def pre_flight_check() -> bool:
 
     print("🔴 SISTEMA NO LISTO - Corregir errores antes de continuar")
     return False
+
+
 if __name__ == "__main__":
     pre_flight_check()
