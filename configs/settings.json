@@ -16,14 +16,40 @@
   },
   "vision": {
     "rois": {
-      "dealer": [870, 180, 180, 150],
-      "player_main": [850, 620, 220, 180],
-      "game_status_text": [750, 300, 420, 100],
-      "others_cards_area": [150, 400, 1620, 300]
+      "dealer_cards": {
+        "left": 870,
+        "top": 180,
+        "width": 180,
+        "height": 150
+      },
+      "player_cards": {
+        "left": 850,
+        "top": 620,
+        "width": 220,
+        "height": 180
+      },
+      "game_status": {
+        "left": 750,
+        "top": 300,
+        "width": 420,
+        "height": 100
+      },
+      "others_cards_area": {
+        "left": 150,
+        "top": 400,
+        "width": 1620,
+        "height": 300
+      },
+      "bankroll_area": {
+        "left": 1200,
+        "top": 50,
+        "width": 150,
+        "height": 30
+      }
     },
     "thresholds": {
       "card_confidence": 0.85,
-      "ocr_confidence": 0.80,
+      "ocr_confidence": 0.8,
       "motion_threshold": 10
     },
     "k_frames_confirm": 3
@@ -31,6 +57,8 @@
   "safety": {
     "min_confidence": 0.75,
     "max_retries": 3,
-    "timeout_ms": 5000
+    "timeout_ms": 5000,
+    "max_consecutive_failures": 3,
+    "action_timeout_seconds": 30
   }
 }

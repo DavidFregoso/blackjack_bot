@@ -4,7 +4,7 @@ import importlib
 import random
 import time
 from pathlib import Path
-from typing import Dict, Optional, Tuple
+from typing import Dict, List, Optional, Tuple
 
 import numpy as np
 import pyautogui
@@ -29,13 +29,15 @@ class Actuator:
             "HIT": "hit_button.png",
             "STAND": "stand_button.png",
             "DOUBLE": "double_button.png",
-            "BET_20": "chip_20.png" # Mapeo para una apuesta de 20
+            "BET_25": "chip_25.png",
+            "BET_100": "chip_100.png",
         }
         self.approx_positions: Dict[str, Tuple[float, float]] = {
             "HIT": (0.8, 0.75),
             "STAND": (0.9, 0.75),
             "DOUBLE": (0.7, 0.75),
-            "BET_20": (0.5, 0.85),
+            "BET_25": (0.5, 0.85),
+            "BET_100": (0.55, 0.85),
         }
         self._last_action_snapshot: Optional[np.ndarray] = None
 
@@ -57,6 +59,10 @@ class Actuator:
         payload = action_request.get("payload", {})
         start_time = time.time()
 
+        chip_plan: List[Dict[str, int | str]] = []
+        if action_type == "BET":
+            chip_plan = self._normalize_chip_plan(payload)
+
         max_retries = 3
         for attempt in range(max_retries):
             try:
@@ -71,19 +77,32 @@ class Actuator:
                     time.sleep(1)
                     continue
 
-                target_location = self._find_target_robust(action_type, payload)
-                if not target_location:
-                    if attempt == max_retries - 1:
-                        return self._create_confirmation(
-                            False,
-                            (time.time() - start_time) * 1000,
-                            error=f"Target not found after {max_retries} attempts",
-                        )
-                    time.sleep(1)
-                    continue
-
                 self._last_action_snapshot = context_snapshot
-                self.mouse.click(int(target_location[0]), int(target_location[1]))
+
+                if action_type == "BET" and chip_plan:
+                    executed = self._execute_bet_plan(chip_plan)
+                    if not executed:
+                        if attempt == max_retries - 1:
+                            return self._create_confirmation(
+                                False,
+                                (time.time() - start_time) * 1000,
+                                error="Bet plan could not be executed",
+                            )
+                        time.sleep(1)
+                        continue
+                else:
+                    target_location = self._find_target_robust(action_type, payload)
+                    if not target_location:
+                        if attempt == max_retries - 1:
+                            return self._create_confirmation(
+                                False,
+                                (time.time() - start_time) * 1000,
+                                error=f"Target not found after {max_retries} attempts",
+                            )
+                        time.sleep(1)
+                        continue
+
+                    self.mouse.click(int(target_location[0]), int(target_location[1]))
 
                 if self._validate_action_effect(action_type, payload, context_snapshot):
                     latency_ms = (time.time() - start_time) * 1000
@@ -137,7 +156,12 @@ class Actuator:
 
         if action_type == "BET":
             chip_type = payload.get("chip_type") or payload.get("chip")
-            key = chip_type or "BET_20"
+            if not chip_type and payload.get("chip_plan"):
+                first = payload["chip_plan"][0]
+                if isinstance(first, dict):
+                    chip_type = first.get("chip_type")
+
+            key = chip_type or "BET_25"
             image_name = self.action_map.get(key)
             if image_name:
                 location = self._find_image_on_screen(image_name, confidence=0.85)
@@ -151,6 +175,60 @@ class Actuator:
             return self._find_by_approximate_position(key)
 
         return None
+
+    def _normalize_chip_plan(self, payload: Dict) -> List[Dict[str, int | str]]:
+        plan: List[Dict[str, int | str]] = []
+
+        raw_plan = payload.get("chip_plan")
+        if isinstance(raw_plan, list):
+            for entry in raw_plan:
+                if not isinstance(entry, dict):
+                    continue
+                chip_type = entry.get("chip_type")
+                if not chip_type:
+                    continue
+                try:
+                    count = int(entry.get("count", 1))
+                except (TypeError, ValueError):
+                    count = 1
+                if count <= 0:
+                    continue
+                plan.append({"chip_type": chip_type, "count": count})
+
+        if not plan:
+            chip_type = payload.get("chip_type") or payload.get("chip")
+            if chip_type:
+                try:
+                    clicks = int(payload.get("clicks", 1))
+                except (TypeError, ValueError):
+                    clicks = 1
+                plan.append({"chip_type": chip_type, "count": max(1, clicks)})
+
+        return plan
+
+    def _execute_bet_plan(self, plan: List[Dict[str, int | str]]) -> bool:
+        for entry in plan:
+            chip_type = entry.get("chip_type")
+            if not chip_type:
+                continue
+
+            try:
+                count = int(entry.get("count", 1))
+            except (TypeError, ValueError):
+                count = 1
+
+            if count <= 0:
+                continue
+
+            location = self._find_target_robust("BET", {"chip_type": chip_type})
+            if not location:
+                print(f"⚠️ [M4 Actuator] No se encontró la ficha {chip_type}")
+                return False
+
+            for _ in range(count):
+                self.mouse.click(int(location[0]), int(location[1]))
+
+        return True
 
     def _find_by_approximate_position(self, identifier: Optional[str]) -> Optional[Tuple[int, int]]:
         if not identifier:
