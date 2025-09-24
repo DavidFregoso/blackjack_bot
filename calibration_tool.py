@@ -13,7 +13,7 @@ import sys
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Set, Tuple
 
 import cv2
 import numpy as np
@@ -47,6 +47,7 @@ class CalibrationTool:
 
         self._roi_data: Dict[str, Dict[str, int]] = {}
         self._roi_settings: Dict[str, Dict[str, int]] = self._load_existing_rois()
+        self._auto_templates_generated: Set[str] = set()
 
         # Algunos sistemas lanzan excepciones si el cursor alcanza la esquina
         # superior izquierda. Deshabilitamos el "failsafe" para evitar abortos
@@ -198,15 +199,43 @@ class CalibrationTool:
             return self._run_manual_calibration()
 
         print("\n🔍 Verificando detección de botones…")
-        verification_passed = 0
-        total_buttons = len(self.calibration_config["buttons"])
+        available_templates: List[Tuple[str, TargetDescriptor]] = []
+        missing_templates: List[str] = []
         for button_id, descriptor in self.calibration_config["buttons"].items():
+            if not descriptor.filename:
+                continue
+
+            template_path = self.output_dir / descriptor.filename
+            if template_path.exists():
+                available_templates.append((button_id, descriptor))
+            else:
+                missing_templates.append(descriptor.name)
+
+        if missing_templates:
+            print(
+                "⚠️  No se encontraron plantillas para: "
+                + ", ".join(missing_templates)
+            )
+
+        if not available_templates:
+            print(
+                "❌ Ninguna plantilla disponible para verificación automática. "
+                "Se requiere calibración manual."
+            )
+            return self._run_manual_calibration()
+
+        verification_passed = 0
+        for button_id, descriptor in available_templates:
             if self._verify_with_template_matching(button_id, descriptor):
                 verification_passed += 1
 
-        print(f"\n📊 Verificación automática: {verification_passed}/{total_buttons} botones detectables")
+        total_verified = len(available_templates)
+        print(
+            f"\n📊 Verificación automática: {verification_passed}/{total_verified} "
+            "botones detectados"
+        )
 
-        if verification_passed >= max(1, int(total_buttons * 0.6)):
+        if verification_passed >= max(1, int(total_verified * 0.6)):
             print("✅ Sistema híbrido configurado correctamente.")
             self._update_settings_config()
             print(f"📁 Plantillas guardadas en: {self.output_dir.resolve()}")
@@ -402,6 +431,7 @@ class CalibrationTool:
         window_top = int(getattr(game_window, "top", 0))
 
         self._roi_data.clear()
+        self._auto_templates_generated.clear()
 
         for roi_id, descriptor in self.calibration_config["rois"].items():
             if not descriptor.relative_coords:
@@ -435,7 +465,7 @@ class CalibrationTool:
             print(f"❌ No se pudo capturar la pantalla para extraer botones: {exc}")
             return False
 
-        auto_success = True
+        auto_generated: Set[str] = set()
         for button_id, descriptor in self.calibration_config["buttons"].items():
             if not descriptor.relative_coords or not descriptor.filename:
                 continue
@@ -444,11 +474,18 @@ class CalibrationTool:
                 screenshot, game_window, button_id, descriptor
             ):
                 print(f"✅ Botón {descriptor.name} extraído automáticamente")
+                auto_generated.add(button_id)
             else:
                 print(f"⚠️  No se pudo extraer automáticamente {descriptor.name}")
-                auto_success = False
+        self._auto_templates_generated = auto_generated
 
-        return auto_success
+        if not auto_generated:
+            print(
+                "⚠️  No se generó ninguna plantilla nueva de forma automática. "
+                "Se utilizarán plantillas previas si existen."
+            )
+
+        return True
 
     def _extract_button_from_coordinates(
         self,
