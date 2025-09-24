@@ -338,6 +338,143 @@
         input:checked + .toggle-slider:before {
             transform: translateX(26px);
         }
+
+        .connection-details {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 10px;
+            margin: 15px 0;
+        }
+
+        .connection-item span {
+            display: block;
+        }
+
+        .connection-label {
+            font-size: 0.75em;
+            text-transform: uppercase;
+            color: var(--text-secondary);
+        }
+
+        .connection-value {
+            font-weight: 600;
+        }
+
+        .tc-card {
+            text-align: center;
+        }
+
+        .tc-value {
+            font-size: 2.5em;
+            font-weight: 700;
+            margin-bottom: 10px;
+        }
+
+        .tc-value.positive { color: var(--success-color); }
+        .tc-value.neutral { color: var(--primary-color); }
+        .tc-value.warning { color: var(--warning-color); }
+        .tc-value.negative { color: var(--danger-color); }
+
+        .tc-meter {
+            position: relative;
+            height: 8px;
+            border-radius: 4px;
+            background: linear-gradient(90deg, var(--danger-color), var(--warning-color) 40%, var(--primary-color) 60%, var(--success-color));
+            margin: 0 auto 8px;
+            width: 90%;
+        }
+
+        .tc-needle {
+            position: absolute;
+            top: -6px;
+            width: 2px;
+            height: 20px;
+            background: var(--primary-color);
+            transition: left 0.3s ease, background 0.3s ease;
+            transform: translateX(-50%);
+        }
+
+        .tc-scale {
+            display: flex;
+            justify-content: space-between;
+            font-size: 0.75em;
+            color: var(--text-secondary);
+            margin-bottom: 10px;
+        }
+
+        .financial-row {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+            gap: 10px;
+            margin: 15px 0;
+        }
+
+        .financial-item {
+            background: rgba(255, 255, 255, 0.05);
+            padding: 10px;
+            border-radius: 6px;
+            border: 1px solid var(--border-color);
+        }
+
+        .financial-item span {
+            display: block;
+            font-size: 0.75em;
+            text-transform: uppercase;
+            color: var(--text-secondary);
+            margin-bottom: 4px;
+        }
+
+        .financial-item strong {
+            display: block;
+            font-size: 1.1em;
+        }
+
+        .financial-item small {
+            display: block;
+            color: var(--text-secondary);
+        }
+
+        .positive-text { color: var(--success-color); }
+        .negative-text { color: var(--danger-color); }
+        .neutral-text { color: var(--text-secondary); }
+
+        .thought-panel {
+            margin-top: 25px;
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            padding: 20px;
+        }
+
+        .thought-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+            gap: 15px;
+        }
+
+        .thought-item {
+            background: rgba(0, 0, 0, 0.25);
+            border: 1px solid var(--border-color);
+            border-radius: 6px;
+            padding: 10px 12px;
+        }
+
+        .thought-label {
+            font-size: 0.75em;
+            text-transform: uppercase;
+            color: var(--text-secondary);
+            margin-bottom: 4px;
+            display: block;
+        }
+
+        .thought-value {
+            font-weight: 600;
+        }
+
+        .thought-highlight {
+            font-size: 1.1em;
+            color: var(--primary-color);
+        }
     </style>
 </head>
 <body>
@@ -462,27 +599,63 @@
     <div class="main-content">
         <!-- Estado en Vivo -->
         <div class="status-grid">
-            <div class="status-card">
-                <div class="status-label">Estado del Bot</div>
+            <div class="status-card connection-card">
+                <div class="status-label">Cockpit</div>
                 <div class="status-value status-info" id="botStatus">Detenido</div>
+                <div class="connection-details">
+                    <div class="connection-item">
+                        <span class="connection-label">Ventana</span>
+                        <span class="connection-value" id="windowStatusText">Desconectado</span>
+                    </div>
+                    <div class="connection-item">
+                        <span class="connection-label">Juego</span>
+                        <span class="connection-value" id="windowTitleLabel">--</span>
+                    </div>
+                </div>
                 <div class="health-indicator">
                     <div class="health-dot" id="healthDot"></div>
                     <span id="healthStatus">Sistema Saludable</span>
                 </div>
+                <small id="preflightSummary">Esperando detección de ventana...</small>
             </div>
-            
-            <div class="status-card">
+
+            <div class="status-card tc-card">
                 <div class="status-label">True Count</div>
-                <div class="status-value status-info" id="trueCount">--</div>
+                <div class="tc-value neutral" id="trueCountValue">--</div>
+                <div class="tc-meter">
+                    <div class="tc-needle" id="tcNeedle"></div>
+                </div>
+                <div class="tc-scale">
+                    <span>-6</span>
+                    <span>0</span>
+                    <span>+6</span>
+                </div>
                 <small id="countingSystem">Sistema: Hi-Lo</small>
             </div>
-            
+
             <div class="status-card">
-                <div class="status-label">Bankroll</div>
+                <div class="status-label">Métricas Financieras</div>
                 <div class="status-value status-healthy" id="bankrollDisplay">$0</div>
-                <small id="pnlDisplay">P&L: $0</small>
+                <div class="financial-row">
+                    <div class="financial-item">
+                        <span>P&L</span>
+                        <strong id="pnlDisplay">--</strong>
+                        <small id="pnlPct">--</small>
+                    </div>
+                    <div class="financial-item">
+                        <span>Drawdown</span>
+                        <strong id="drawdownDisplay">--</strong>
+                        <small id="drawdownPct">--</small>
+                    </div>
+                    <div class="financial-item">
+                        <span>Máx DD</span>
+                        <strong id="maxDrawdownDisplay">--</strong>
+                        <small id="maxDrawdownPct">--</small>
+                    </div>
+                </div>
+                <small id="bankrollTrend">Tendencia: --</small>
             </div>
-            
+
             <div class="status-card">
                 <div class="status-label">Fase del Juego</div>
                 <div class="status-value status-info" id="gamePhase">Esperando</div>
@@ -499,6 +672,48 @@
                 <div class="status-label">Estadísticas</div>
                 <div class="status-value status-info" id="winRate">--</div>
                 <small id="handsPlayed">Manos: 0</small>
+            </div>
+        </div>
+
+        <div class="thought-panel">
+            <h3>🧠 Pensamiento del Bot</h3>
+            <div class="thought-grid">
+                <div class="thought-item">
+                    <span class="thought-label">Modo</span>
+                    <span class="thought-value" id="thoughtMode">--</span>
+                </div>
+                <div class="thought-item">
+                    <span class="thought-label">Estado</span>
+                    <span class="thought-value" id="thoughtState">--</span>
+                </div>
+                <div class="thought-item">
+                    <span class="thought-label">Fase</span>
+                    <span class="thought-value" id="thoughtPhase">--</span>
+                </div>
+                <div class="thought-item">
+                    <span class="thought-label">Acción / Apuesta</span>
+                    <span class="thought-value thought-highlight" id="thoughtAction">--</span>
+                </div>
+                <div class="thought-item">
+                    <span class="thought-label">Razón</span>
+                    <span class="thought-value" id="thoughtReason">--</span>
+                </div>
+                <div class="thought-item">
+                    <span class="thought-label">True Count</span>
+                    <span class="thought-value" id="thoughtTrueCount">--</span>
+                </div>
+                <div class="thought-item">
+                    <span class="thought-label">Confianza / Riesgo</span>
+                    <span class="thought-value" id="thoughtRisk">--</span>
+                </div>
+                <div class="thought-item">
+                    <span class="thought-label">Próxima Apuesta</span>
+                    <span class="thought-value" id="thoughtNextBet">--</span>
+                </div>
+                <div class="thought-item">
+                    <span class="thought-label">Última Actualización</span>
+                    <span class="thought-value" id="thoughtTimestamp">--</span>
+                </div>
             </div>
         </div>
 
@@ -520,60 +735,380 @@
         </div>
     </div>
 
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.1/socket.io.js"></script>
+        <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.1/socket.io.js"></script>
     <script>
-        // Variables globales
         const socket = io();
         let isCalibrating = false;
         let windowConnected = false;
         let logCount = 0;
         const maxLogEntries = 1000;
+        let preflightBusy = false;
+        let preflightInterval = null;
+        let statusPollInterval = null;
+        let lastThinkingPayload = null;
+        const TC_RANGE = { min: -6, max: 6 };
 
-        // Inicialización
-        document.addEventListener('DOMContentLoaded', function() {
+        document.addEventListener('DOMContentLoaded', () => {
             updateSystemStatus('Iniciando sistema...', 'info');
             detectWindow();
             loadSavedConfig();
+            preflightInterval = setInterval(() => detectWindow(false), 30000);
+            statusPollInterval = setInterval(fetchSystemStatus, 15000);
+            fetchSystemStatus();
         });
 
-        // === DETECCIÓN DE VENTANA ===
-        async function detectWindow() {
-            updateSystemStatus('Buscando ventana del juego...', 'info');
-            
+        function formatCurrency(value) {
+            if (value === null || value === undefined || Number.isNaN(Number(value))) {
+                return '--';
+            }
+            const amount = Number(value);
+            const sign = amount < 0 ? '-' : '';
+            return `${sign}$${Math.abs(amount).toFixed(2)}`;
+        }
+
+        function formatPercentage(value) {
+            if (value === null || value === undefined || Number.isNaN(Number(value))) {
+                return '--';
+            }
+            return `${(Number(value) * 100).toFixed(2)}%`;
+        }
+
+        function setValueColor(element, value) {
+            if (!element) return;
+            element.classList.remove('positive-text', 'negative-text', 'neutral-text');
+            if (value > 0) {
+                element.classList.add('positive-text');
+            } else if (value < 0) {
+                element.classList.add('negative-text');
+            } else {
+                element.classList.add('neutral-text');
+            }
+        }
+
+        function updateWindowDisplay(info) {
+            const indicator = document.getElementById('windowIndicator');
+            const sidebarStatus = document.getElementById('windowStatus');
+            const windowInfoBox = document.getElementById('windowInfo');
+            const sidebarTitle = document.getElementById('windowTitle');
+            const statusText = document.getElementById('windowStatusText');
+            const titleLabel = document.getElementById('windowTitleLabel');
+            const preflightSummary = document.getElementById('preflightSummary');
+
+            const isConnected = Boolean(info && info.connected);
+            windowConnected = isConnected;
+
+            if (indicator) {
+                indicator.classList.toggle('connected', isConnected);
+            }
+
+            if (sidebarStatus) {
+                sidebarStatus.textContent = isConnected ? 'Conectado' : 'No encontrada';
+            }
+
+            if (statusText) {
+                statusText.textContent = isConnected ? 'Detectada' : 'Desconectado';
+            }
+
+            const title = info && info.title ? info.title : '--';
+
+            if (sidebarTitle) {
+                sidebarTitle.textContent = isConnected ? title : '';
+            }
+
+            if (titleLabel) {
+                titleLabel.textContent = isConnected ? title : '--';
+            }
+
+            if (windowInfoBox) {
+                windowInfoBox.style.display = isConnected ? 'block' : 'none';
+            }
+
+            if (preflightSummary) {
+                if (isConnected) {
+                    const width = info && info.width ? info.width : '??';
+                    const height = info && info.height ? info.height : '??';
+                    preflightSummary.textContent = info.message || `Ventana lista (${width}x${height})`;
+                } else {
+                    preflightSummary.textContent = (info && info.message) || 'Abre la mesa de All Bets Blackjack en Caliente.mx';
+                }
+            }
+
+            const startButton = document.getElementById('startButton');
+            if (startButton) {
+                startButton.disabled = !isConnected;
+            }
+        }
+
+        function updateTrueCountGauge(tc) {
+            if (tc === undefined || tc === null || Number.isNaN(Number(tc))) {
+                return;
+            }
+            const numericTC = Number(tc);
+            const valueElement = document.getElementById('trueCountValue');
+            const needle = document.getElementById('tcNeedle');
+
+            if (valueElement) {
+                valueElement.textContent = numericTC.toFixed(2);
+                valueElement.classList.remove('positive', 'neutral', 'warning', 'negative');
+                if (numericTC >= 2) {
+                    valueElement.classList.add('positive');
+                } else if (numericTC >= 0.5) {
+                    valueElement.classList.add('neutral');
+                } else if (numericTC >= -1.5) {
+                    valueElement.classList.add('warning');
+                } else {
+                    valueElement.classList.add('negative');
+                }
+            }
+
+            if (needle) {
+                const clamped = Math.max(TC_RANGE.min, Math.min(TC_RANGE.max, numericTC));
+                const percent = (clamped - TC_RANGE.min) / (TC_RANGE.max - TC_RANGE.min);
+                needle.style.left = `${percent * 100}%`;
+
+                if (numericTC >= 2) {
+                    needle.style.background = 'var(--success-color)';
+                } else if (numericTC >= 0.5) {
+                    needle.style.background = 'var(--primary-color)';
+                } else if (numericTC >= -1.5) {
+                    needle.style.background = 'var(--warning-color)';
+                } else {
+                    needle.style.background = 'var(--danger-color)';
+                }
+            }
+        }
+
+        function updateFinancialMetrics(data) {
+            const metrics = data.financial_metrics || {};
+            const bankroll = data.bankroll ?? metrics.bankroll;
+            const pnlValue = data.pnl ?? metrics.pnl;
+            const bankrollElement = document.getElementById('bankrollDisplay');
+
+            if (bankrollElement && bankroll !== undefined) {
+                bankrollElement.textContent = formatCurrency(bankroll);
+                bankrollElement.classList.remove('status-healthy', 'status-warning', 'status-error', 'status-info');
+                if (pnlValue > 0) {
+                    bankrollElement.classList.add('status-healthy');
+                } else if (pnlValue < 0) {
+                    bankrollElement.classList.add('status-error');
+                } else {
+                    bankrollElement.classList.add('status-info');
+                }
+            }
+
+            const pnlElement = document.getElementById('pnlDisplay');
+            if (pnlElement && pnlValue !== undefined) {
+                pnlElement.textContent = formatCurrency(pnlValue);
+                setValueColor(pnlElement, pnlValue);
+            }
+
+            const pnlPctValue = data.pnl_pct ?? metrics.pnl_pct;
+            const pnlPctElement = document.getElementById('pnlPct');
+            if (pnlPctElement && pnlPctValue !== undefined) {
+                pnlPctElement.textContent = formatPercentage(pnlPctValue);
+                setValueColor(pnlPctElement, pnlPctValue);
+            }
+
+            const drawdownValue = data.drawdown ?? metrics.current_drawdown;
+            const drawdownElement = document.getElementById('drawdownDisplay');
+            if (drawdownElement && drawdownValue !== undefined) {
+                const normalized = -Math.abs(drawdownValue);
+                drawdownElement.textContent = formatCurrency(normalized);
+                setValueColor(drawdownElement, normalized);
+            }
+
+            const drawdownPctValue = data.drawdown_pct ?? metrics.current_drawdown_pct;
+            const drawdownPctElement = document.getElementById('drawdownPct');
+            if (drawdownPctElement && drawdownPctValue !== undefined) {
+                const normalized = -Math.abs(drawdownPctValue);
+                drawdownPctElement.textContent = formatPercentage(normalized);
+                setValueColor(drawdownPctElement, normalized);
+            }
+
+            const maxDrawdownValue = data.max_drawdown ?? metrics.max_drawdown;
+            const maxDrawdownElement = document.getElementById('maxDrawdownDisplay');
+            if (maxDrawdownElement && maxDrawdownValue !== undefined) {
+                const normalized = -Math.abs(maxDrawdownValue);
+                maxDrawdownElement.textContent = formatCurrency(normalized);
+                setValueColor(maxDrawdownElement, normalized);
+            }
+
+            const maxDrawdownPctValue = data.max_drawdown_pct ?? metrics.max_drawdown_pct;
+            const maxDrawdownPctElement = document.getElementById('maxDrawdownPct');
+            if (maxDrawdownPctElement && maxDrawdownPctValue !== undefined) {
+                const normalized = -Math.abs(maxDrawdownPctValue);
+                maxDrawdownPctElement.textContent = formatPercentage(normalized);
+                setValueColor(maxDrawdownPctElement, normalized);
+            }
+
+            const trendValue = data.bankroll_trend || metrics.bankroll_trend || data.trend;
+            const trendElement = document.getElementById('bankrollTrend');
+            if (trendElement && trendValue) {
+                const mapping = {
+                    increasing: '📈 Al alza',
+                    decreasing: '📉 A la baja',
+                    stable: '➖ Estable',
+                    insufficient_data: 'Datos insuficientes',
+                };
+                trendElement.textContent = `Tendencia: ${mapping[trendValue] || trendValue}`;
+            }
+        }
+
+        function updateThinkingPanel(thinking) {
+            if (!thinking || typeof thinking !== 'object') {
+                return;
+            }
+
+            lastThinkingPayload = thinking;
+
+            const assign = (id, value) => {
+                const element = document.getElementById(id);
+                if (element) {
+                    element.textContent = value ?? '--';
+                }
+            };
+
+            assign('thoughtMode', thinking.mode || '--');
+            assign('thoughtState', thinking.state || '--');
+            assign('thoughtPhase', thinking.phase || '--');
+
+            let actionText = '--';
+            if (thinking.mode === 'play') {
+                actionText = thinking.recommended_action || thinking.action || '--';
+            } else if (thinking.mode === 'bet') {
+                if (thinking.should_sit) {
+                    actionText = 'SIT OUT';
+                } else if (thinking.recommended_bet !== undefined) {
+                    actionText = formatCurrency(thinking.recommended_bet);
+                }
+            } else if (thinking.recommended_action) {
+                actionText = thinking.recommended_action;
+            }
+            assign('thoughtAction', actionText);
+
+            assign('thoughtReason', thinking.reason || thinking.rationale || '--');
+
+            if (thinking.true_count !== undefined) {
+                assign('thoughtTrueCount', Number(thinking.true_count).toFixed(2));
+            } else if (thinking.tc !== undefined) {
+                assign('thoughtTrueCount', Number(thinking.tc).toFixed(2));
+            } else {
+                assign('thoughtTrueCount', '--');
+            }
+
+            if (thinking.confidence !== undefined || thinking.risk_state || thinking.risk_message) {
+                const confidencePart = thinking.confidence !== undefined
+                    ? `${(Number(thinking.confidence) * 100).toFixed(1)}%`
+                    : null;
+                const riskPart = thinking.risk_state || thinking.risk_message;
+                assign('thoughtRisk', [confidencePart, riskPart].filter(Boolean).join(' | ') || '--');
+            } else {
+                assign('thoughtRisk', '--');
+            }
+
+            if (thinking.next_bet_planned !== undefined) {
+                assign('thoughtNextBet', formatCurrency(thinking.next_bet_planned));
+            } else if (thinking.recommended_bet !== undefined) {
+                assign('thoughtNextBet', formatCurrency(thinking.recommended_bet));
+            } else if (thinking.should_sit) {
+                assign('thoughtNextBet', 'Sentado');
+            } else {
+                assign('thoughtNextBet', '--');
+            }
+
+            const timestampElement = document.getElementById('thoughtTimestamp');
+            if (timestampElement) {
+                const timestamp = thinking.timestamp ? Number(thinking.timestamp) * 1000 : Date.now();
+                timestampElement.textContent = new Date(timestamp).toLocaleTimeString();
+            }
+        }
+
+        async function fetchSystemStatus() {
+            try {
+                const response = await fetch('/system_status');
+                const result = await response.json();
+
+                if (result.window_detected !== undefined) {
+                    updateWindowDisplay({
+                        connected: result.window_detected,
+                        title: result.window_info ? result.window_info.title : undefined,
+                        width: result.window_info ? result.window_info.width : undefined,
+                        height: result.window_info ? result.window_info.height : undefined,
+                        message: result.window_detected ? 'Ventana detectada automáticamente' : null,
+                    });
+                }
+
+                if (result.bot_running !== undefined) {
+                    const botStatusElement = document.getElementById('botStatus');
+                    if (botStatusElement && !result.bot_running) {
+                        botStatusElement.textContent = 'Detenido';
+                    }
+                }
+
+                const detailMetrics = result.details && result.details.financial_metrics;
+                if (detailMetrics) {
+                    updateFinancialMetrics({ financial_metrics: detailMetrics });
+                } else if (result.financial_metrics) {
+                    updateFinancialMetrics({ financial_metrics: result.financial_metrics });
+                }
+
+                const thinking = result.details && result.details.last_thinking;
+                if (thinking) {
+                    updateThinkingPanel(thinking);
+                }
+            } catch (error) {
+                // Evitar ruido si la API no responde temporalmente
+            }
+        }
+
+        async function detectWindow(showLog = true) {
+            if (preflightBusy) {
+                return;
+            }
+
+            preflightBusy = true;
+
+            if (showLog) {
+                updateSystemStatus('Buscando ventana del juego...', 'info');
+            }
+
             try {
                 const response = await fetch('/detect_window', { method: 'POST' });
                 const result = await response.json();
-                
+
                 if (result.success) {
-                    windowConnected = true;
-                    document.getElementById('windowIndicator').classList.add('connected');
-                    document.getElementById('windowStatus').textContent = 'Conectado';
-                    document.getElementById('windowTitle').textContent = result.window_title;
-                    document.getElementById('windowInfo').style.display = 'block';
-                    updateSystemStatus(`Ventana detectada: ${result.window_title}`, 'success');
-                    
-                    // Habilitar botón de inicio
-                    document.getElementById('startButton').disabled = false;
+                    updateWindowDisplay({
+                        connected: true,
+                        title: result.window_title,
+                        width: result.window ? result.window.width : undefined,
+                        height: result.window ? result.window.height : undefined,
+                        message: `Ventana detectada: ${result.window_title}`,
+                    });
+                    if (showLog) {
+                        updateSystemStatus(`Ventana detectada: ${result.window_title}`, 'success');
+                    }
                 } else {
-                    windowConnected = false;
-                    document.getElementById('windowIndicator').classList.remove('connected');
-                    document.getElementById('windowStatus').textContent = 'No encontrada';
-                    document.getElementById('windowInfo').style.display = 'none';
-                    updateSystemStatus('Ventana del juego no encontrada. Abrir Caliente.mx', 'warning');
-                    
-                    // Deshabilitar botón de inicio
-                    document.getElementById('startButton').disabled = true;
+                    updateWindowDisplay({
+                        connected: false,
+                        message: 'Ventana del juego no encontrada. Abre la mesa para continuar.',
+                    });
+                    if (showLog) {
+                        updateSystemStatus('Ventana del juego no encontrada. Abrir Caliente.mx', 'warning');
+                    }
                 }
             } catch (error) {
-                updateSystemStatus(`Error detectando ventana: ${error.message}`, 'error');
+                if (showLog) {
+                    updateSystemStatus(`Error detectando ventana: ${error.message}`, 'error');
+                }
+            } finally {
+                preflightBusy = false;
             }
         }
 
         async function refreshWindow() {
-            await detectWindow();
+            await detectWindow(true);
         }
 
-        // === CONTROLES PRINCIPALES ===
         async function startBot() {
             if (!windowConnected) {
                 updateSystemStatus('Error: Primero detecta la ventana del juego', 'error');
@@ -587,12 +1122,12 @@
                 const response = await fetch('/start', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(config)
+                    body: JSON.stringify(config),
                 });
-                
+
                 const result = await response.json();
-                
-                if (result.status === 'Bot iniciado') {
+
+                if (result.status && result.status.includes('Bot iniciado')) {
                     document.getElementById('startButton').disabled = true;
                     document.getElementById('stopButton').disabled = false;
                     document.getElementById('botStatus').textContent = 'Iniciando...';
@@ -607,21 +1142,21 @@
 
         async function stopBot() {
             updateSystemStatus('Deteniendo bot...', 'warning');
-            
+
             try {
                 const response = await fetch('/stop', { method: 'POST' });
-                const result = await response.json();
-                
+                await response.json();
+
                 document.getElementById('startButton').disabled = false;
                 document.getElementById('stopButton').disabled = true;
                 document.getElementById('botStatus').textContent = 'Detenido';
                 updateSystemStatus('Bot detenido correctamente', 'success');
+                fetchSystemStatus();
             } catch (error) {
                 updateSystemStatus(`Error deteniendo bot: ${error.message}`, 'error');
             }
         }
 
-        // === CALIBRACIÓN ===
         function showCalibration() {
             const section = document.getElementById('calibrationSection');
             section.classList.toggle('active');
@@ -636,17 +1171,17 @@
             isCalibrating = true;
             updateSystemStatus('Iniciando calibración visual...', 'info');
             document.getElementById('calibrationText').textContent = 'Calibrando...';
-            
+
             try {
                 const response = await fetch('/calibrate', { method: 'POST' });
                 const result = await response.json();
-                
-                if (result.status === 'Calibración exitosa') {
+
+                if (result.success) {
                     updateSystemStatus('Calibración completada exitosamente', 'success');
                     document.getElementById('calibrationProgress').style.width = '100%';
                     document.getElementById('calibrationText').textContent = 'Calibración completada';
                 } else {
-                    updateSystemStatus(`Error en calibración: ${result.error}`, 'error');
+                    updateSystemStatus(`Error en calibración: ${result.error || 'verifica el sistema'}`, 'error');
                     document.getElementById('calibrationText').textContent = 'Error en calibración';
                 }
             } catch (error) {
@@ -662,25 +1197,30 @@
             updateSystemStatus('Calibración reseteada', 'info');
         }
 
-        // === PRUEBAS DEL SISTEMA ===
         async function testSystems() {
             updateSystemStatus('Ejecutando pruebas del sistema...', 'info');
-            
+
             try {
                 const response = await fetch('/test_systems', { method: 'POST' });
                 const result = await response.json();
-                
+
+                if (Array.isArray(result.tests)) {
+                    result.tests.forEach(test => {
+                        const level = test.passed ? 'success' : 'warning';
+                        addLogEntry(`Prueba • ${test.name}: ${test.passed ? 'OK' : 'FALLÓ'}${test.details ? ` (${test.details})` : ''}`, level);
+                    });
+                }
+
                 if (result.success) {
                     updateSystemStatus(`Pruebas completadas: ${result.passed}/${result.total} exitosas`, 'success');
                 } else {
-                    updateSystemStatus(`Pruebas fallidas: ${result.error}`, 'warning');
+                    updateSystemStatus(`Pruebas con advertencias: ${result.passed}/${result.total} exitosas`, 'warning');
                 }
             } catch (error) {
                 updateSystemStatus(`Error en pruebas: ${error.message}`, 'error');
             }
         }
 
-        // === CONFIGURACIÓN ===
         function gatherConfiguration() {
             return {
                 system: document.getElementById('systemSelect').value,
@@ -690,27 +1230,26 @@
                 unit_value: parseFloat(document.getElementById('unitValueInput').value),
                 conservative_mode: document.getElementById('conservativeMode').checked,
                 auto_calibration: document.getElementById('autoCalibration').checked,
-                verbose_logs: document.getElementById('verboseLogs').checked
+                verbose_logs: document.getElementById('verboseLogs').checked,
             };
         }
 
         function loadSavedConfig() {
-            // Cargar configuración guardada del localStorage
             const saved = localStorage.getItem('blackjack_bot_config');
-            if (saved) {
-                try {
-                    const config = JSON.parse(saved);
-                    document.getElementById('systemSelect').value = config.system || 'hilo';
-                    document.getElementById('initialBankroll').value = config.initial_bankroll || 1000;
-                    document.getElementById('stopLossInput').value = (config.stoploss || 0.15) * 100;
-                    document.getElementById('maxBetInput').value = config.max_bet || 200;
-                    document.getElementById('unitValueInput').value = config.unit_value || 25;
-                    document.getElementById('conservativeMode').checked = config.conservative_mode || false;
-                    document.getElementById('autoCalibration').checked = config.auto_calibration !== false;
-                    document.getElementById('verboseLogs').checked = config.verbose_logs || false;
-                } catch (e) {
-                    console.warn('Error loading saved config:', e);
-                }
+            if (!saved) return;
+
+            try {
+                const config = JSON.parse(saved);
+                document.getElementById('systemSelect').value = config.system || 'hilo';
+                document.getElementById('initialBankroll').value = config.initial_bankroll || 1000;
+                document.getElementById('stopLossInput').value = (config.stoploss || 0.15) * 100;
+                document.getElementById('maxBetInput').value = config.max_bet || 200;
+                document.getElementById('unitValueInput').value = config.unit_value || 25;
+                document.getElementById('conservativeMode').checked = config.conservative_mode || false;
+                document.getElementById('autoCalibration').checked = config.auto_calibration !== false;
+                document.getElementById('verboseLogs').checked = config.verbose_logs || false;
+            } catch (error) {
+                console.warn('Error loading saved config:', error);
             }
         }
 
@@ -719,13 +1258,11 @@
             localStorage.setItem('blackjack_bot_config', JSON.stringify(config));
         }
 
-        // Guardar configuración al cambiar
-        ['systemSelect', 'initialBankroll', 'stopLossInput', 'maxBetInput', 'unitValueInput', 
+        ['systemSelect', 'initialBankroll', 'stopLossInput', 'maxBetInput', 'unitValueInput',
          'conservativeMode', 'autoCalibration', 'verboseLogs'].forEach(id => {
             document.getElementById(id).addEventListener('change', saveConfig);
         });
 
-        // === LOGGING ===
         function updateSystemStatus(message, level = 'info') {
             addLogEntry(message, level);
         }
@@ -736,17 +1273,15 @@
             const entry = document.createElement('div');
             entry.className = `log-entry ${level}`;
             entry.textContent = `[${timestamp}] ${message}`;
-            
+
             logOutput.appendChild(entry);
-            
-            // Limitar número de entradas
+
             logCount++;
             if (logCount > maxLogEntries) {
                 logOutput.removeChild(logOutput.firstChild);
                 logCount--;
             }
-            
-            // Auto-scroll si está habilitado
+
             if (document.getElementById('autoScroll').checked) {
                 logOutput.scrollTop = logOutput.scrollHeight;
             }
@@ -772,67 +1307,58 @@
             updateSystemStatus('Logs exportados', 'success');
         }
 
-        // === SOCKET.IO EVENTOS ===
-        socket.on('status_update', function(data) {
-            // Actualizar estado del bot
+        socket.on('status_update', data => {
             if (data.status) {
                 document.getElementById('botStatus').textContent = data.status;
             }
 
-            // Actualizar True Count
             if (data.tc !== undefined) {
-                const tcElement = document.getElementById('trueCount');
-                tcElement.textContent = data.tc.toFixed(2);
-                
-                // Colorear según valor
-                tcElement.className = 'status-value';
-                if (data.tc > 2) tcElement.classList.add('status-healthy');
-                else if (data.tc > 0) tcElement.classList.add('status-info');
-                else if (data.tc > -2) tcElement.classList.add('status-warning');
-                else tcElement.classList.add('status-error');
+                updateTrueCountGauge(data.tc);
             }
 
-            // Actualizar bankroll y P&L
-            if (data.bankroll !== undefined) {
-                document.getElementById('bankrollDisplay').textContent = `$${data.bankroll.toFixed(2)}`;
-                
-                if (data.pnl !== undefined) {
-                    const pnlText = data.pnl >= 0 ? `+$${data.pnl.toFixed(2)}` : `-$${Math.abs(data.pnl).toFixed(2)}`;
-                    document.getElementById('pnlDisplay').textContent = `P&L: ${pnlText}`;
-                }
+            if (data.financial_metrics || data.bankroll !== undefined) {
+                updateFinancialMetrics(data);
             }
 
-            // Actualizar fase del juego
             if (data.phase) {
                 document.getElementById('gamePhase').textContent = data.phase;
             }
 
-            // Actualizar última acción
+            if (data.round_count !== undefined) {
+                document.getElementById('roundInfo').textContent = `Ronda: ${data.round_count}`;
+            }
+
             if (data.last_action) {
                 document.getElementById('lastAction').textContent = data.last_action;
                 document.getElementById('actionTime').textContent = new Date().toLocaleTimeString();
             }
 
-            // Añadir al log si hay mensaje
             if (data.log) {
-                const level = data.status && data.status.includes('ERROR') ? 'error' : 
-                             data.status && data.status.includes('WARNING') ? 'warning' : 'info';
+                const level = data.status && data.status.toLowerCase().includes('error') ? 'error'
+                    : data.status && data.status.toLowerCase().includes('warning') ? 'warning'
+                    : 'info';
                 addLogEntry(data.log, level);
+            }
+
+            if (data.thinking) {
+                updateThinkingPanel(data.thinking);
             }
         });
 
-        socket.on('health_update', function(data) {
+        socket.on('health_update', data => {
             const healthDot = document.getElementById('healthDot');
             const healthStatus = document.getElementById('healthStatus');
-            
-            healthDot.style.backgroundColor = 
-                data.status === 'HEALTHY' ? 'var(--success-color)' :
-                data.status === 'WARNING' ? 'var(--warning-color)' : 'var(--danger-color)';
-            
+
+            const color =
+                data.status === 'HEALTHY' ? 'var(--success-color)'
+                    : data.status === 'WARNING' ? 'var(--warning-color)'
+                    : 'var(--danger-color)';
+
+            healthDot.style.backgroundColor = color;
             healthStatus.textContent = `Sistema: ${data.status}`;
         });
 
-        socket.on('calibration_progress', function(data) {
+        socket.on('calibration_progress', data => {
             if (isCalibrating) {
                 document.getElementById('calibrationProgress').style.width = `${data.progress}%`;
                 document.getElementById('calibrationText').textContent = data.message;
@@ -840,7 +1366,6 @@
             }
         });
 
-        // Actualizar sistema de conteo cuando cambie
         document.getElementById('systemSelect').addEventListener('change', function() {
             document.getElementById('countingSystem').textContent = `Sistema: ${this.value.toUpperCase()}`;
         });

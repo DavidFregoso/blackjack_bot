@@ -21,7 +21,7 @@ if 'bankroll_area' in rois:
 
 import re
 import logging
-from typing import Optional, Tuple, List
+from typing import Optional, Tuple, List, Dict
 
 import cv2
 import numpy as np
@@ -234,6 +234,13 @@ class BankrollTracker:
         self.consecutive_failures: int = 0
         self.max_failures: int = 3
 
+        # Métricas financieras
+        self.initial_bankroll: float = initial_bankroll if initial_bankroll > 0 else 0.0
+        self.high_watermark: float = initial_bankroll if initial_bankroll > 0 else 0.0
+        self.low_watermark: float = initial_bankroll if initial_bankroll > 0 else 0.0
+        self.max_drawdown: float = 0.0
+        self.current_drawdown: float = 0.0
+
     def update_from_roi(self, roi_image: np.ndarray, recent_bet: float = 0) -> Tuple[float, bool]:
         """
         Actualiza el bankroll desde una imagen ROI.
@@ -274,12 +281,67 @@ class BankrollTracker:
         self.history.append(new_reading)
         self.consecutive_failures = 0
 
+        if self.initial_bankroll <= 0 and self.history:
+            self.initial_bankroll = self.history[0]
+
+        if self.high_watermark <= 0:
+            self.high_watermark = new_reading
+
+        if self.low_watermark <= 0:
+            self.low_watermark = new_reading
+
+        if new_reading > self.high_watermark:
+            self.high_watermark = new_reading
+            self.current_drawdown = 0.0
+        else:
+            self.current_drawdown = self.high_watermark - new_reading
+            if self.current_drawdown > self.max_drawdown:
+                self.max_drawdown = self.current_drawdown
+
+        if self.low_watermark == 0.0:
+            self.low_watermark = new_reading
+        else:
+            self.low_watermark = min(self.low_watermark, new_reading)
+
         # Mantener historial limitado
         if len(self.history) > 100:
             self.history.pop(0)
 
         logger.info(f"Bankroll updated: ${new_reading:,.2f}")
         return new_reading, True
+
+    # ------------------------------------------------------------------
+    # Métricas financieras
+    # ------------------------------------------------------------------
+
+    def get_financial_metrics(self) -> Dict[str, float]:
+        """Devuelve un snapshot con métricas financieras clave."""
+
+        bankroll = self.current_bankroll
+        initial = self.initial_bankroll or (self.history[0] if self.history else bankroll)
+
+        pnl = bankroll - initial if initial else 0.0
+        pnl_pct = pnl / initial if initial else 0.0
+
+        high = self.high_watermark or bankroll
+        low = self.low_watermark or bankroll
+
+        current_drawdown = max(0.0, high - bankroll)
+        current_drawdown_pct = current_drawdown / high if high else 0.0
+        max_drawdown_pct = self.max_drawdown / high if high else 0.0
+
+        return {
+            "bankroll": bankroll,
+            "initial_bankroll": initial,
+            "pnl": pnl,
+            "pnl_pct": pnl_pct,
+            "current_drawdown": current_drawdown,
+            "current_drawdown_pct": current_drawdown_pct,
+            "max_drawdown": self.max_drawdown,
+            "max_drawdown_pct": max_drawdown_pct,
+            "high_watermark": high,
+            "low_watermark": low,
+        }
 
     def get_trend(self, periods: int = 5) -> str:
         """
