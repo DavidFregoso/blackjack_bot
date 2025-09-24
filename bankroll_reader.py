@@ -1,25 +1,47 @@
+"""
+bankroll_reader.py - Módulo para leer el bankroll desde la pantalla usando OCR
+
+Integración con live_bot_app.py:
+
+# En bot_worker(), agregar después de la inicialización:
+from bankroll_reader import BankrollTracker
+
+bankroll_tracker = BankrollTracker(initial_bankroll=1000)  # Valor inicial
+
+# En el bucle principal, agregar:
+if 'bankroll_area' in rois:
+    bankroll_roi = rois['bankroll_area']
+    bankroll_image = bankroll_roi.extract(frame)
+    current_bankroll, success = bankroll_tracker.update_from_roi(bankroll_image)
+
+    if success:
+        brain.risk_manager.update_bankroll(current_bankroll)
+        socketio.emit('status_update', {'bankroll': current_bankroll})
+"""
+
 import re
+import logging
+from typing import Optional, Tuple, List
+
 import cv2
 import numpy as np
 import pytesseract
-from typing import Optional, Tuple
-import logging
 
 logger = logging.getLogger(__name__)
 
 
 class BankrollReader:
     """
-    Lee y procesa el bankroll desde la pantalla usando OCR
+    Lee y procesa el bankroll desde la pantalla usando OCR.
     """
 
     def __init__(self):
         # Patrones comunes para texto de bankroll
         self.bankroll_patterns = [
-            r"[\$\€\£]?\s*([0-9]+(?:[,\.][0-9]{3})*(?:\.[0-9]{2})?)",  # $1,234.56
-            r"([0-9]+(?:[,\.][0-9]{3})*(?:\.[0-9]{2})?)\s*[\$\€\£]?",  # 1,234.56$
-            r"Balance:\s*[\$\€\£]?\s*([0-9]+(?:[,\.][0-9]{3})*(?:\.[0-9]{2})?)",  # Balance: $1,234.56
-            r"Saldo:\s*[\$\€\£]?\s*([0-9]+(?:[,\.][0-9]{3})*(?:\.[0-9]{2})?)",   # Saldo: $1,234.56
+            r'[\$\€\£]?\s*([0-9]+(?:[,\.][0-9]{3})*(?:\.[0-9]{2})?)',  # $1,234.56
+            r'([0-9]+(?:[,\.][0-9]{3})*(?:\.[0-9]{2})?)\s*[\$\€\£]?',  # 1,234.56$
+            r'Balance:\s*[\$\€\£]?\s*([0-9]+(?:[,\.][0-9]{3})*(?:\.[0-9]{2})?)',  # Balance: $1,234.56
+            r'Saldo:\s*[\$\€\£]?\s*([0-9]+(?:[,\.][0-9]{3})*(?:\.[0-9]{2})?)',   # Saldo: $1,234.56
         ]
 
         # Configuración OCR optimizada para números
@@ -27,13 +49,13 @@ class BankrollReader:
 
     def read_bankroll_from_roi(self, roi_image: np.ndarray) -> Optional[float]:
         """
-        Extrae el bankroll desde una imagen ROI usando OCR
+        Extrae el bankroll desde una imagen ROI usando OCR.
 
         Args:
-            roi_image: Imagen de la región donde aparece el bankroll
+            roi_image: Imagen de la región donde aparece el bankroll.
 
         Returns:
-            Valor del bankroll como float, o None si no se puede leer
+            Valor del bankroll como float, o None si no se puede leer.
         """
         if roi_image is None or roi_image.size == 0:
             return None
@@ -63,7 +85,7 @@ class BankrollReader:
 
     def _preprocess_for_ocr(self, image: np.ndarray) -> np.ndarray:
         """
-        Preprocesa la imagen para mejorar la precisión del OCR
+        Preprocesa la imagen para mejorar la precisión del OCR.
         """
         # Convertir a escala de grises si es necesario
         if len(image.shape) == 3:
@@ -96,7 +118,7 @@ class BankrollReader:
 
     def _extract_numeric_value(self, text: str) -> Optional[float]:
         """
-        Extrae el valor numérico del texto del bankroll
+        Extrae el valor numérico del texto del bankroll.
         """
         if not text:
             return None
@@ -125,7 +147,7 @@ class BankrollReader:
                 potential_value = float(cleaned_number)
 
                 # Filtrar valores que no parecen bankrolls realistas
-                if 10.0 <= potential_value <= 1000000.0:  # Rango razonable
+                if 10.0 <= potential_value <= 1_000_000.0:  # Rango razonable
                     return potential_value
 
             except ValueError:
@@ -135,7 +157,7 @@ class BankrollReader:
 
     def _clean_number_string(self, number_str: str) -> str:
         """
-        Limpia una cadena numérica para convertir a float
+        Limpia una cadena numérica para convertir a float.
         """
         # Remover espacios
         cleaned = number_str.replace(' ', '')
@@ -157,18 +179,22 @@ class BankrollReader:
 
         return cleaned
 
-    def validate_bankroll_change(self, old_bankroll: float, new_bankroll: float,
-                                 recent_bet: float = 0) -> bool:
+    def validate_bankroll_change(
+        self,
+        old_bankroll: float,
+        new_bankroll: float,
+        recent_bet: float = 0
+    ) -> bool:
         """
-        Valida si un cambio de bankroll es realista
+        Valida si un cambio de bankroll es realista.
 
         Args:
-            old_bankroll: Bankroll anterior
-            new_bankroll: Nuevo bankroll leído
-            recent_bet: Apuesta reciente si se conoce
+            old_bankroll: Bankroll anterior.
+            new_bankroll: Nuevo bankroll leído.
+            recent_bet: Apuesta reciente para validación.
 
         Returns:
-            True si el cambio parece válido
+            True si el cambio parece válido.
         """
         if old_bankroll <= 0 or new_bankroll <= 0:
             return False
@@ -187,7 +213,9 @@ class BankrollReader:
             expected_change_max = recent_bet * 2.5   # Ganancia con BJ
 
             if not (expected_change_min <= change <= expected_change_max):
-                logger.warning(f"Bankroll change doesn't match bet: bet={recent_bet}, change={change}")
+                logger.warning(
+                    f"Bankroll change doesn't match bet: bet={recent_bet}, change={change}"
+                )
                 return False
 
         return True
@@ -195,27 +223,27 @@ class BankrollReader:
 
 class BankrollTracker:
     """
-    Rastrea el bankroll a lo largo del tiempo con validación y filtrado
+    Rastrea el bankroll a lo largo del tiempo con validación y filtrado.
     """
 
     def __init__(self, initial_bankroll: float = 0):
         self.reader = BankrollReader()
-        self.current_bankroll = initial_bankroll
-        self.history = [initial_bankroll] if initial_bankroll > 0 else []
-        self.last_valid_reading = initial_bankroll
-        self.consecutive_failures = 0
-        self.max_failures = 3
+        self.current_bankroll: float = initial_bankroll
+        self.history: List[float] = [initial_bankroll] if initial_bankroll > 0 else []
+        self.last_valid_reading: float = initial_bankroll
+        self.consecutive_failures: int = 0
+        self.max_failures: int = 3
 
     def update_from_roi(self, roi_image: np.ndarray, recent_bet: float = 0) -> Tuple[float, bool]:
         """
-        Actualiza el bankroll desde una imagen ROI
+        Actualiza el bankroll desde una imagen ROI.
 
         Args:
-            roi_image: Imagen de la región del bankroll
-            recent_bet: Apuesta reciente para validación
+            roi_image: Imagen de la región del bankroll.
+            recent_bet: Apuesta reciente para validación.
 
         Returns:
-            Tuple de (bankroll_actual, lectura_exitosa)
+            Tuple de (bankroll_actual, lectura_exitosa).
         """
         new_reading = self.reader.read_bankroll_from_roi(roi_image)
 
@@ -255,7 +283,7 @@ class BankrollTracker:
 
     def get_trend(self, periods: int = 5) -> str:
         """
-        Obtiene la tendencia reciente del bankroll
+        Obtiene la tendencia reciente del bankroll.
 
         Returns:
             'increasing', 'decreasing', 'stable', o 'insufficient_data'
