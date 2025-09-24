@@ -8,6 +8,7 @@ import subprocess
 import sys
 import os
 import platform
+import shutil
 from pathlib import Path
 
 def print_step(message, step_num=None):
@@ -139,7 +140,7 @@ read -p "Presiona ENTER para cerrar..."
 def test_installation():
     """Prueba la instalación"""
     print("   🧪 Probando dependencias...")
-    
+
     test_imports = [
         ("flask", "Flask web framework"),
         ("cv2", "OpenCV para visión por computadora"),
@@ -162,17 +163,83 @@ def test_installation():
     if failed_imports:
         print(f"\n   ⚠️ Módulos fallidos: {', '.join(failed_imports)}")
         return False
-    
-    # Probar Tesseract específicamente
+
+    return verify_tesseract_installation()
+
+
+def find_tesseract_executable():
+    """Intenta localizar el ejecutable de Tesseract en el sistema."""
+    detected_path = shutil.which("tesseract")
+    if detected_path:
+        return detected_path, True
+
+    system = platform.system().lower()
+
+    candidates = []
+    if system == "windows":
+        candidates = [
+            r"C:\\Program Files\\Tesseract-OCR\\tesseract.exe",
+            r"C:\\Program Files (x86)\\Tesseract-OCR\\tesseract.exe"
+        ]
+    elif system == "darwin":
+        candidates = [
+            "/opt/homebrew/bin/tesseract",
+            "/usr/local/bin/tesseract"
+        ]
+    else:  # linux y otros
+        candidates = [
+            "/usr/bin/tesseract",
+            "/usr/local/bin/tesseract"
+        ]
+
+    for candidate in candidates:
+        if Path(candidate).exists():
+            return candidate, False
+
+    return None, False
+
+
+def verify_tesseract_installation():
+    """Verifica y configura Tesseract si es necesario."""
     try:
         import pytesseract
-        pytesseract.get_tesseract_version()
-        print("   ✅ Tesseract OCR funcionando")
-    except:
+    except ImportError:
         print("   ❌ Tesseract OCR no funciona correctamente")
+        print("   📋 El paquete 'pytesseract' no está instalado.")
         return False
-    
-    return True
+
+    executable_path, from_path = find_tesseract_executable()
+    if executable_path:
+        pytesseract.pytesseract.tesseract_cmd = executable_path
+
+    try:
+        version = pytesseract.get_tesseract_version()
+        print(f"   ✅ Tesseract OCR funcionando (versión {version})")
+        if executable_path and not from_path:
+            print(f"   ℹ️ Se detectó Tesseract en: {executable_path}")
+            print("   🔧 Considera agregar esta ruta al PATH del sistema.")
+        return True
+    except (pytesseract.TesseractNotFoundError, FileNotFoundError) as error:
+        print("   ❌ Tesseract OCR no funciona correctamente")
+        if executable_path:
+            print(f"   📋 Se intentó usar: {executable_path}")
+        else:
+            print("   🔎 No se encontró el ejecutable 'tesseract' en el sistema.")
+
+        system = platform.system().lower()
+        if system == "windows":
+            print("   👉 Verifica que Tesseract esté instalado en 'C:/Program Files/Tesseract-OCR/' y que la carpeta esté en el PATH.")
+        elif system == "darwin":
+            print("   👉 Instala Tesseract con Homebrew: brew install tesseract")
+        else:
+            print("   👉 Instala Tesseract con el gestor de paquetes de tu distribución (por ejemplo, sudo apt-get install tesseract-ocr).")
+
+        print(f"   ❗ Detalle: {error}")
+        return False
+    except Exception as error:
+        print("   ❌ Ocurrió un error al verificar Tesseract OCR")
+        print(f"   ❗ Detalle: {error}")
+        return False
 
 def main():
     """Función principal de instalación"""
