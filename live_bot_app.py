@@ -6,7 +6,7 @@ import json
 import threading
 import time
 from pathlib import Path
-from typing import Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional, Union
 
 from flask import Flask, render_template, request
 from flask_socketio import SocketIO
@@ -28,6 +28,9 @@ app = Flask(__name__, template_folder="frontend")
 socketio = SocketIO(app, async_mode="eventlet")
 bot_thread: Optional[threading.Thread] = None
 bot_running = False
+
+current_orchestrator: Optional["EnhancedBotOrchestrator"] = None
+orchestrator_lock = threading.Lock()
 
 
 class EnhancedBotOrchestrator:
@@ -72,7 +75,22 @@ class EnhancedBotOrchestrator:
             "emergency_stops": 0,
         }
 
+        self._last_thinking: Dict[str, Any] = {}
+        self._last_financial_metrics: Dict[str, float] = {}
+
         self._initialize_enhanced_modules()
+
+    def _emit_status_update(self, payload: Dict[str, Any], thinking: Optional[Dict[str, Any]] = None) -> None:
+        """Emite actualizaciones enriquecidas conservando el último contexto."""
+
+        message = dict(payload)
+        if thinking is not None:
+            context = dict(thinking)
+            context.setdefault("timestamp", time.time())
+            self._last_thinking = context
+            message["thinking"] = context
+
+        socketio.emit("status_update", message)
 
     def _initialize_enhanced_modules(self) -> None:
         """Inicializa todos los módulos con las mejoras implementadas."""
@@ -484,14 +502,26 @@ class EnhancedBotOrchestrator:
             is_soft = game_state.get("my_hand_soft", False)
             dealer_up = game_state.get("dealer_up_value", 0)
 
+            tc_snapshot = self.counter.get_snapshot()
+
             if hand_value == 0 or dealer_up == 0:
-                socketio.emit(
-                    "status_update",
+                thinking_context = {
+                    "mode": "play",
+                    "state": "waiting_data",
+                    "phase": self.fsm.current_phase.value if self.fsm else "unknown",
+                    "hand_value": hand_value,
+                    "dealer_up": dealer_up,
+                    "is_soft": bool(is_soft),
+                    "true_count": tc_snapshot.get("tc_current", 0.0),
+                    "cards_seen": tc_snapshot.get("cards_seen"),
+                    "decks_remaining": tc_snapshot.get("decks_remaining"),
+                }
+                self._emit_status_update(
                     {"log": "Información insuficiente para decidir jugada", "status": "Esperando datos"},
+                    thinking_context,
                 )
                 return
 
-            tc_snapshot = self.counter.get_snapshot()
             self.decision_maker.process_count_update(tc_snapshot)
 
             decision = self.decision_maker.decide_play(
@@ -512,20 +542,43 @@ class EnhancedBotOrchestrator:
             )
             self.logger.log(decision_event)
 
-            socketio.emit(
-                "status_update",
+            thinking_context = {
+                "mode": "play",
+                "state": "decision",
+                "phase": self.fsm.current_phase.value if self.fsm else "unknown",
+                "hand_value": hand_value,
+                "dealer_up": dealer_up,
+                "is_soft": bool(is_soft),
+                "true_count": decision.get("tc_used", tc_snapshot.get("tc_current", 0.0)),
+                "cards_seen": tc_snapshot.get("cards_seen"),
+                "decks_remaining": tc_snapshot.get("decks_remaining"),
+                "recommended_action": decision["action"].value,
+                "reason": decision["reason"],
+                "confidence": decision["confidence"],
+                "risk_state": decision.get("risk_state"),
+                "risk_message": decision.get("risk_message"),
+                "risk_factor": decision.get("risk_factor"),
+                "next_bet_planned": getattr(self.decision_maker, "next_bet", None),
+            }
+
+            self._emit_status_update(
                 {
                     "log": f"M3 DECISIÓN: {decision['action'].value} | {decision['reason']} | TC:{decision['tc_used']:.1f}",
                     "status": "Decidiendo...",
                     "last_decision": decision["action"].value,
                 },
+                thinking_context,
             )
 
             self._execute_play_action_enhanced(decision)
         except Exception as exc:  # pragma: no cover - depende de flujo runtime
-            socketio.emit(
-                "status_update",
+            self._emit_status_update(
                 {"log": f"Error en decisión de jugada: {exc}", "status": "Error"},
+                {
+                    "mode": "play",
+                    "state": "error",
+                    "error": str(exc),
+                },
             )
 
     def _make_bet_decision_enhanced(self) -> None:
@@ -550,27 +603,51 @@ class EnhancedBotOrchestrator:
             )
             self.logger.log(bet_event)
 
-            socketio.emit(
-                "status_update",
-                {
-                    "log": f"M3 APUESTA: ${bet_decision['amount']} | {bet_decision['rationale']} | TC:{tc_for_bet:.1f}",
-                    "status": "Apostando...",
-                },
+            thinking_context = {
+                "mode": "bet",
+                "state": "planning",
+                "phase": self.fsm.current_phase.value if self.fsm else "unknown",
+                "true_count": tc_for_bet,
+                "cards_seen": tc_snapshot.get("cards_seen"),
+                "decks_remaining": tc_snapshot.get("decks_remaining"),
+                "recommended_bet": bet_decision.get("amount"),
+                "units": bet_decision.get("units"),
+                "rationale": bet_decision.get("rationale"),
+                "risk_state": bet_decision.get("risk_state"),
+                "should_sit": bet_decision.get("should_sit"),
+            }
+
+            status_message = "Apostando..."
+            log_message = (
+                f"M3 APUESTA: ${bet_decision['amount']} | {bet_decision['rationale']} | TC:{tc_for_bet:.1f}"
             )
 
             if bet_decision.get("should_sit"):
-                socketio.emit(
-                    "status_update",
-                    {"log": "Saltando ronda por condiciones adversas", "status": "Sentado"},
-                )
+                thinking_context["state"] = "sit_out"
+                status_message = "Sentado"
+                log_message += " | Sit out"
+
+            self._emit_status_update(
+                {
+                    "log": log_message,
+                    "status": status_message,
+                },
+                thinking_context,
+            )
+
+            if bet_decision.get("should_sit"):
                 return
 
             self.last_bet_amount = float(bet_decision.get("amount", 0))
             self._execute_bet_action_enhanced(bet_decision)
         except Exception as exc:  # pragma: no cover - runtime
-            socketio.emit(
-                "status_update",
+            self._emit_status_update(
                 {"log": f"Error en decisión de apuesta: {exc}", "status": "Error"},
+                {
+                    "mode": "bet",
+                    "state": "error",
+                    "error": str(exc),
+                },
             )
 
     def _execute_play_action_enhanced(self, decision: Dict) -> None:
@@ -597,32 +674,29 @@ class EnhancedBotOrchestrator:
             self.health_monitor.update_action_result(bool(ok))
 
             if ok:
-                socketio.emit(
-                    "status_update",
+                self._emit_status_update(
                     {
                         "log": f"M4 ✅ {decision['action'].value} ejecutado correctamente",
                         "status": "Acción ejecutada",
                         "last_action": decision["action"].value,
                         "action_time": time.time(),
-                    },
+                    }
                 )
                 if self.game_state:
                     self.game_state.last_decision = decision["action"].value
                 self.safety_checks["last_successful_action"] = time.time()
             else:
                 error = confirmation.get("error", "Error desconocido")
-                socketio.emit(
-                    "status_update",
-                    {"log": f"M4 ❌ Error: {error}", "status": "Error de ejecución"},
+                self._emit_status_update(
+                    {"log": f"M4 ❌ Error: {error}", "status": "Error de ejecución"}
                 )
                 if self.emergency_settings.get("safety", {}).get(
                     "auto_recalibration_enabled", True
                 ) and self.actuator:
                     self.actuator.trigger_recalibration()
         except Exception as exc:  # pragma: no cover - seguridad adicional
-            socketio.emit(
-                "status_update",
-                {"log": f"Error ejecutando acción: {exc}", "status": "Error"},
+            self._emit_status_update(
+                {"log": f"Error ejecutando acción: {exc}", "status": "Error"}
             )
 
     def _execute_bet_action_enhanced(self, bet_decision: Dict) -> None:
@@ -634,9 +708,8 @@ class EnhancedBotOrchestrator:
         try:
             amount = float(bet_decision.get("amount", 0))
             if amount <= 0:
-                socketio.emit(
-                    "status_update",
-                    {"log": "No se requiere apuesta para esta ronda", "status": "Sentado"},
+                self._emit_status_update(
+                    {"log": "No se requiere apuesta para esta ronda", "status": "Sentado"}
                 )
                 return
 
@@ -652,9 +725,8 @@ class EnhancedBotOrchestrator:
             else:
                 chip_action = self._select_bet_chip_enhanced(amount)
                 if not chip_action:
-                    socketio.emit(
-                        "status_update",
-                        {"log": "No hay fichas disponibles para la apuesta", "status": "Error de apuesta"},
+                    self._emit_status_update(
+                        {"log": "No hay fichas disponibles para la apuesta", "status": "Error de apuesta"}
                     )
                     return
                 payload["chip_type"] = chip_action
@@ -668,26 +740,23 @@ class EnhancedBotOrchestrator:
             self.health_monitor.update_action_result(bool(ok))
 
             if ok:
-                socketio.emit(
-                    "status_update",
+                self._emit_status_update(
                     {
                         "log": f"M4 ✅ Apuesta de ${amount} ejecutada correctamente",
                         "status": "Apuesta realizada",
                         "last_bet": amount,
                         "bet_time": time.time(),
-                    },
+                    }
                 )
                 self.safety_checks["last_successful_action"] = time.time()
             else:
                 error = confirmation.get("error", "Error desconocido")
-                socketio.emit(
-                    "status_update",
-                    {"log": f"M4 ❌ Error en apuesta: {error}", "status": "Error de apuesta"},
+                self._emit_status_update(
+                    {"log": f"M4 ❌ Error en apuesta: {error}", "status": "Error de apuesta"}
                 )
         except Exception as exc:  # pragma: no cover - seguridad adicional
-            socketio.emit(
-                "status_update",
-                {"log": f"Error ejecutando apuesta: {exc}", "status": "Error"},
+            self._emit_status_update(
+                {"log": f"Error ejecutando apuesta: {exc}", "status": "Error"}
             )
 
     def _plan_bet_clicks_enhanced(self, amount: float) -> List[Dict[str, Union[int, str]]]:
@@ -742,22 +811,26 @@ class EnhancedBotOrchestrator:
                     current_bankroll, updated = self.bankroll_tracker.update_from_roi(
                         bankroll_image, self.last_bet_amount
                     )
-                    if updated and self.decision_maker:
-                        self.decision_maker.risk_manager.update_bankroll(current_bankroll)
-                        initial = (
-                            self.bankroll_tracker.history[0]
-                            if self.bankroll_tracker.history
-                            else current_bankroll
-                        )
-                        pnl = current_bankroll - initial
-                        socketio.emit(
-                            "status_update",
-                            {
-                                "bankroll": current_bankroll,
-                                "pnl": pnl,
-                                "bankroll_trend": self.bankroll_tracker.get_trend(),
-                            },
-                        )
+                    if updated:
+                        metrics = self.bankroll_tracker.get_financial_metrics()
+                        self._last_financial_metrics = metrics
+
+                        if self.decision_maker:
+                            self.decision_maker.risk_manager.update_bankroll(metrics["bankroll"])
+
+                        payload = {
+                            "bankroll": metrics["bankroll"],
+                            "pnl": metrics["pnl"],
+                            "pnl_pct": metrics["pnl_pct"],
+                            "drawdown": metrics["current_drawdown"],
+                            "drawdown_pct": metrics["current_drawdown_pct"],
+                            "max_drawdown": metrics["max_drawdown"],
+                            "max_drawdown_pct": metrics["max_drawdown_pct"],
+                            "bankroll_trend": self.bankroll_tracker.get_trend(),
+                            "financial_metrics": metrics,
+                        }
+
+                        self._emit_status_update(payload)
         except Exception as exc:  # pragma: no cover - OCR externo
             print(f"Error actualizando bankroll: {exc}")
             if self.health_monitor:
@@ -798,6 +871,8 @@ class EnhancedBotOrchestrator:
             health_report["safety_status"] = self.safety_wrapper.get_safety_status()
         if self.vision:
             health_report["vision_status"] = self.vision.get_detection_status()
+        if self._last_financial_metrics:
+            health_report["financial_metrics"] = self._last_financial_metrics
 
         socketio.emit("health_update", health_report)
         self._last_health_report = time.time()
@@ -823,17 +898,24 @@ class EnhancedBotOrchestrator:
         if self.fsm:
             status["fsm_status"] = self.fsm.get_state()
 
+        if self._last_financial_metrics:
+            status["financial_metrics"] = self._last_financial_metrics
+        if self._last_thinking:
+            status["last_thinking"] = self._last_thinking
+
         return status
 
 
 def enhanced_bot_worker(config: Optional[Dict]) -> None:
     """Worker del bot con mejoras implementadas."""
 
-    global bot_running
+    global bot_running, current_orchestrator
     print("🚀 Iniciando worker del bot mejorado...")
 
     try:
         orchestrator = EnhancedBotOrchestrator(config)
+        with orchestrator_lock:
+            current_orchestrator = orchestrator
         orchestrator.run()
     except Exception as exc:  # pragma: no cover - worker runtime
         socketio.emit(
@@ -846,11 +928,165 @@ def enhanced_bot_worker(config: Optional[Dict]) -> None:
         traceback.print_exc()
     finally:
         bot_running = False
+        with orchestrator_lock:
+            current_orchestrator = None
+
+
+def _perform_enhanced_calibration() -> Dict[str, Any]:
+    """Ejecuta la calibración y devuelve un resumen estructurado."""
+
+    try:
+        calibrator = ImprovedCalibrationTool()
+        success = calibrator.run_enhanced_calibration()
+
+        if success:
+            return {
+                "status": "Calibración exitosa",
+                "success": True,
+                "features": [
+                    "Detección específica de All Bets Blackjack",
+                    "Sistema híbrido coordenadas + template matching",
+                    "ROIs preconfiguradas",
+                ],
+            }
+
+        return {
+            "status": "Calibración fallida",
+            "success": False,
+            "error": "Ver logs del sistema",
+        }
+    except Exception as exc:  # pragma: no cover - depende de entorno
+        return {"status": "Error en calibración", "success": False, "error": str(exc)}
+
+
+def _run_system_checks() -> Dict[str, Any]:
+    """Ejecuta pruebas rápidas de estado y devuelve resultados agregados."""
+
+    tests: List[Dict[str, Any]] = []
+    passed = 0
+
+    # Prueba de detección de ventana
+    try:
+        detector = GameWindowDetector()
+        window = detector.get_game_window()
+        success = window is not None
+        tests.append(
+            {
+                "name": "Detección de ventana",
+                "passed": success,
+                "details": getattr(window, "title", "No encontrada") if window else "Ventana no encontrada",
+            }
+        )
+        if success:
+            passed += 1
+    except Exception as exc:  # pragma: no cover - defensivo
+        tests.append({"name": "Detección de ventana", "passed": False, "details": str(exc)})
+
+    # Prueba de orquestador de decisiones
+    try:
+        decision = DecisionOrchestrator(initial_bankroll=1000)
+        status = decision.get_status()
+        success = bool(status)
+        tests.append(
+            {
+                "name": "Motor de decisiones",
+                "passed": success,
+                "details": f"Win rate base: {status.get('win_rate', 0):.2%}" if success else "Sin datos",
+            }
+        )
+        if success:
+            passed += 1
+    except Exception as exc:  # pragma: no cover - defensivo
+        tests.append({"name": "Motor de decisiones", "passed": False, "details": str(exc)})
+
+    # Prueba de actuador y mouse humanizado
+    try:
+        actuator = HybridActuator()
+        status = actuator.get_status()
+        success = bool(status)
+        tests.append(
+            {
+                "name": "Actuador híbrido",
+                "passed": success,
+                "details": f"Acciones disponibles: {len(status.get('available_actions', []))}",
+            }
+        )
+        if success:
+            passed += 1
+    except Exception as exc:  # pragma: no cover - defensivo
+        tests.append({"name": "Actuador híbrido", "passed": False, "details": str(exc)})
+
+    # Prueba de métricas financieras
+    try:
+        tracker = BankrollTracker(initial_bankroll=1000)
+        metrics = tracker.get_financial_metrics()
+        success = metrics.get("bankroll") == 1000
+        tests.append(
+            {
+                "name": "Métricas financieras",
+                "passed": success,
+                "details": f"P&L inicial: {metrics.get('pnl', 0):.2f}",
+            }
+        )
+        if success:
+            passed += 1
+    except Exception as exc:  # pragma: no cover - defensivo
+        tests.append({"name": "Métricas financieras", "passed": False, "details": str(exc)})
+
+    total = len(tests)
+    return {
+        "success": passed == total and total > 0,
+        "passed": passed,
+        "total": total,
+        "tests": tests,
+    }
 
 
 @app.route("/")
 def index():
     return render_template("index.html")
+
+
+@app.route("/detect_window", methods=["POST"])
+def detect_window() -> Dict[str, Any]:
+    """Verifica el estado de la ventana de juego antes de iniciar el bot."""
+
+    try:
+        detector = GameWindowDetector()
+        window = detector.get_game_window(force_refresh=True)
+
+        if not window:
+            return {
+                "success": False,
+                "error": "Ventana de All Bets Blackjack no encontrada",
+                "timestamp": time.time(),
+            }
+
+        window_info = {
+            "title": getattr(window, "title", ""),
+            "width": getattr(window, "width", 0),
+            "height": getattr(window, "height", 0),
+            "left": getattr(window, "left", 0),
+            "top": getattr(window, "top", 0),
+        }
+
+        return {
+            "success": True,
+            "window_title": window_info["title"],
+            "window": window_info,
+            "timestamp": time.time(),
+        }
+    except Exception as exc:  # pragma: no cover - defensivo
+        return {"success": False, "error": str(exc), "timestamp": time.time()}
+
+
+@app.route("/test_systems", methods=["POST"])
+def test_systems() -> Dict[str, Any]:
+    """Ejecuta pruebas rápidas para validar subsistemas críticos."""
+
+    results = _run_system_checks()
+    results["timestamp"] = time.time()
+    return results
 
 
 @app.route("/start", methods=["POST"])
@@ -871,38 +1107,33 @@ def start_bot():
         )
         bot_thread.start()
 
-        return {"status": "Bot iniciado con sistema mejorado", "config": config}
-    return {"status": "Bot ya está ejecutándose", "running": True}
+        return {"status": "Bot iniciado", "config": config, "timestamp": time.time()}
+    return {"status": "Bot ya está ejecutándose", "running": True, "timestamp": time.time()}
 
 
 @app.route("/stop", methods=["POST"])
 def stop_bot():
     global bot_running
     bot_running = False
-    return {"status": "Deteniendo bot mejorado..."}
+    return {"status": "Deteniendo bot...", "running": False, "timestamp": time.time()}
 
 
 @app.route("/run_calibration", methods=["POST"])
 def run_enhanced_calibration():
     """Ejecuta calibración mejorada desde la web."""
 
-    try:
-        calibrator = ImprovedCalibrationTool()
-        success = calibrator.run_enhanced_calibration()
+    result = _perform_enhanced_calibration()
+    result["timestamp"] = time.time()
+    return result
 
-        if success:
-            return {
-                "status": "Calibración mejorada exitosa",
-                "type": "enhanced",
-                "features": [
-                    "Detección específica de All Bets Blackjack",
-                    "Sistema híbrido coordenadas + template matching",
-                    "ROIs preconfiguradas",
-                ],
-            }
-        return {"status": "Calibración fallida", "error": "Ver logs del sistema"}
-    except Exception as exc:  # pragma: no cover - depende de entorno
-        return {"status": "Error en calibración", "error": str(exc)}
+
+@app.route("/calibrate", methods=["POST"])
+def calibrate():
+    """Alias simplificado para iniciar la calibración desde el panel."""
+
+    result = _perform_enhanced_calibration()
+    result["timestamp"] = time.time()
+    return result
 
 
 @app.route("/system_status", methods=["GET"])
@@ -910,18 +1141,36 @@ def get_enhanced_system_status():
     """Obtiene estado detallado del sistema mejorado."""
 
     try:
-        return {
+        payload: Dict[str, Any] = {
             "system_type": "enhanced",
-            "features": {
-                "window_detection": "All Bets Blackjack specific",
-                "calibration": "Hybrid system",
-                "vision": "Optimized for shared hands",
-                "actuator": "Relative coordinates + template matching",
-            },
-            "status": "Enhanced system ready",
+            "bot_running": bot_running,
+            "timestamp": time.time(),
         }
+
+        with orchestrator_lock:
+            orchestrator = current_orchestrator
+
+        if orchestrator:
+            payload["status"] = "Bot ejecutándose"
+            payload["details"] = orchestrator.get_system_status()
+        else:
+            payload["status"] = "Bot detenido"
+            payload["details"] = {}
+
+        # Estado de ventana en vivo para transparencia
+        detector = GameWindowDetector()
+        window = detector.get_game_window()
+        payload["window_detected"] = bool(window)
+        if window:
+            payload["window_info"] = {
+                "title": getattr(window, "title", ""),
+                "width": getattr(window, "width", 0),
+                "height": getattr(window, "height", 0),
+            }
+
+        return payload
     except Exception as exc:  # pragma: no cover - defensivo
-        return {"error": str(exc)}
+        return {"error": str(exc), "timestamp": time.time()}
 
 
 if __name__ == "__main__":

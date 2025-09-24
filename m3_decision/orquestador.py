@@ -56,7 +56,10 @@ class DecisionOrchestrator:
                 'action': PlayAction.STAND,
                 'reason': f"Session Stopped: {risk_msg}",
                 'tc_used': self.current_tc,
-                'confidence': 0.0
+                'confidence': 0.0,
+                'risk_state': risk_state.value,
+                'risk_message': risk_msg,
+                'risk_factor': risk_factor,
             }
         
         # Obtener decisión de estrategia
@@ -72,7 +75,10 @@ class DecisionOrchestrator:
             'action': action,
             'reason': reason,
             'tc_used': self.current_tc,
-            'confidence': confidence
+            'confidence': confidence,
+            'risk_state': risk_state.value,
+            'risk_message': risk_msg,
+            'risk_factor': risk_factor,
         }
     
     def decide_bet(self, tc_post: float = None) -> Dict:
