@@ -1,0 +1,21 @@
+{
+  "safety": {
+    "max_consecutive_failures": 3,
+    "action_timeout_seconds": 30,
+    "max_emergency_stops": 3,
+    "health_check_interval": 60,
+    "auto_recalibration_enabled": true
+  },
+  "monitoring": {
+    "min_success_rate": 0.7,
+    "min_ocr_confidence": 0.6,
+    "max_phase_errors": 5,
+    "bankroll_read_timeout": 10,
+    "max_idle_time": 60
+  },
+  "recovery": {
+    "pause_on_ui_change": true,
+    "reset_on_desync": true,
+    "notification_webhook": null
+  }
+}
