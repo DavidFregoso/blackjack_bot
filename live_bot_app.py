@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import threading
 import time
+from pathlib import Path
 from typing import Dict, List, Optional
 
 import cv2
@@ -19,8 +20,9 @@ from m2_cerebro.contador import CardCounter
 from m2_cerebro.estado_juego import GameState
 from m2_cerebro.fsm import GameFSM
 from m3_decision.orquestador import DecisionOrchestrator
-from m4_actuacion.actuator import Actuator
+from m4_actuacion.actuator import Actuator, SafetyWrapper
 from m5_metricas.logger import EventLogger
+from m5_metricas.health_monitor import HealthMonitor
 from utils.contratos import Card, Event, EventType, GamePhase
 from bankroll_reader import BankrollTracker
 
@@ -29,6 +31,23 @@ app = Flask(__name__, template_folder="frontend")
 socketio = SocketIO(app, async_mode="eventlet")
 bot_thread: Optional[threading.Thread] = None
 bot_running = False
+
+
+class GameSynchronizer:
+    """Monitorea actividad del juego para detectar desincronizaciones."""
+
+    def __init__(self, max_idle_time: float = 60.0) -> None:
+        self.max_idle_time = max_idle_time
+        self.last_game_activity = time.time()
+
+    def update_activity(self) -> None:
+        self.last_game_activity = time.time()
+
+    def check_sync(self) -> bool:
+        return time.time() - self.last_game_activity <= self.max_idle_time
+
+    def reset(self) -> None:
+        self.last_game_activity = time.time()
 
 
 class BotOrchestrator:
@@ -40,6 +59,22 @@ class BotOrchestrator:
         self.current_round_id: Optional[str] = None
         self.last_bet_amount: float = 0.0
 
+        self.emergency_settings = self._load_emergency_settings()
+        safety_cfg = self.emergency_settings.get("safety", {})
+        self.safety_checks = {
+            "last_successful_action": time.time(),
+            "action_timeout": safety_cfg.get("action_timeout_seconds", 30),
+            "emergency_stops": 0,
+            "max_emergency_stops": safety_cfg.get("max_emergency_stops", 3),
+        }
+        monitoring_cfg = self.emergency_settings.get("monitoring", {})
+
+        self.health_monitor = HealthMonitor()
+        self._last_health_report = time.time()
+        self.synchronizer = GameSynchronizer(
+            max_idle_time=monitoring_cfg.get("max_idle_time", 60)
+        )
+
         self.game_window = None
         self.rois: Dict[str, RegionOfInterest] = {}
         self.vision: Optional[VisionSystem] = None
@@ -48,6 +83,7 @@ class BotOrchestrator:
         self.game_state: Optional[GameState] = None
         self.decision_maker: Optional[DecisionOrchestrator] = None
         self.actuator: Optional[Actuator] = None
+        self.safety_wrapper: Optional[SafetyWrapper] = None
         self.bankroll_tracker: Optional[BankrollTracker] = None
 
         self._initialize_modules()
@@ -79,6 +115,11 @@ class BotOrchestrator:
         initial_bankroll = float(self.config.get("initial_bankroll", 1000))
         self.decision_maker = DecisionOrchestrator(initial_bankroll=initial_bankroll)
         self.actuator = Actuator()
+        self.safety_wrapper = SafetyWrapper(self.actuator)
+        max_failures = self.emergency_settings.get("safety", {}).get(
+            "max_consecutive_failures", 3
+        )
+        self.safety_wrapper.max_failures = max_failures
         self.bankroll_tracker = BankrollTracker(initial_bankroll=initial_bankroll)
 
         socketio.emit(
@@ -119,6 +160,50 @@ class BotOrchestrator:
             )
         return rois
 
+    def _load_emergency_settings(self) -> Dict[str, Dict]:
+        """Carga configuración de seguridad con valores por defecto."""
+        default_settings = {
+            "safety": {
+                "max_consecutive_failures": 3,
+                "action_timeout_seconds": 30,
+                "max_emergency_stops": 3,
+                "health_check_interval": 60,
+                "auto_recalibration_enabled": True,
+            },
+            "monitoring": {
+                "min_success_rate": 0.7,
+                "min_ocr_confidence": 0.6,
+                "max_phase_errors": 5,
+                "bankroll_read_timeout": 10,
+                "max_idle_time": 60,
+            },
+            "recovery": {
+                "pause_on_ui_change": True,
+                "reset_on_desync": True,
+                "notification_webhook": None,
+            },
+        }
+
+        config_path = Path("configs/emergency_settings.json")
+        if config_path.exists():
+            try:
+                with open(config_path, "r", encoding="utf-8") as handler:
+                    loaded = json.load(handler)
+            except Exception:
+                loaded = {}
+        else:
+            loaded = {}
+
+        merged = json.loads(json.dumps(default_settings))  # copia profunda
+        for section, values in loaded.items():
+            if not isinstance(values, dict):
+                continue
+            merged.setdefault(section, {})
+            for key, value in values.items():
+                merged[section][key] = value
+
+        return merged
+
     # ------------------------------------------------------------------
     # Bucle principal
     # ------------------------------------------------------------------
@@ -156,6 +241,10 @@ class BotOrchestrator:
     # ------------------------------------------------------------------
     def _process_event(self, event: Event) -> None:
         self.logger.log(event)
+        if self.synchronizer:
+            self.synchronizer.update_activity()
+
+        self._update_health_from_event(event)
         self._process_m2_event(event)
         self._update_ui_from_event(event)
 
@@ -163,6 +252,7 @@ class BotOrchestrator:
             self._process_m3_decision()
 
         self._update_bankroll_if_needed(event)
+        self._maybe_emit_health_report()
 
     def _process_m2_event(self, event: Event) -> None:
         if not (self.counter and self.fsm and self.game_state):
@@ -218,6 +308,33 @@ class BotOrchestrator:
                     self.decision_maker.update_result(False, amount)
 
             self.current_round_id = None
+
+    def _update_health_from_event(self, event: Event) -> None:
+        if not self.health_monitor:
+            return
+
+        data = event.data or {}
+        if event.event_type == EventType.STATE_TEXT:
+            confidence = data.get("confidence")
+            if confidence is not None:
+                try:
+                    self.health_monitor.update_ocr_confidence(float(confidence))
+                except (TypeError, ValueError):
+                    pass
+
+    def _maybe_emit_health_report(self) -> None:
+        if not self.health_monitor:
+            return
+
+        interval = self.emergency_settings.get("safety", {}).get(
+            "health_check_interval", 60
+        )
+        if time.time() - self._last_health_report < interval:
+            return
+
+        report = self.health_monitor.generate_health_report()
+        socketio.emit("health_update", report)
+        self._last_health_report = time.time()
 
     def _parse_card(self, card_str: Optional[str]) -> Optional[Card]:
         if not card_str or len(card_str) < 2:
@@ -389,6 +506,124 @@ class BotOrchestrator:
                 {"log": f"Error en decisión de apuesta: {exc}", "status": "Error"},
             )
 
+    def safety_check(self) -> bool:
+        """Verificaciones de seguridad antes de ejecutar acciones."""
+        current_time = time.time()
+        timeout = self.safety_checks.get("action_timeout")
+        if timeout and current_time - self.safety_checks["last_successful_action"] > timeout:
+            self.emergency_pause("Action timeout - possible UI freeze")
+            return False
+
+        try:
+            windows = pyautogui.getWindowsWithTitle("Caliente.mx")
+            if not windows:
+                windows = pyautogui.getWindowsWithTitle("Caliente")
+            if not windows:
+                self.emergency_pause("Game window not found")
+                return False
+        except Exception:
+            self.emergency_pause("Unable to verify game window")
+            return False
+
+        if self.safety_checks["emergency_stops"] >= self.safety_checks["max_emergency_stops"]:
+            return False
+
+        if self.synchronizer and not self.synchronizer.check_sync():
+            self.emergency_pause("Game heartbeat lost")
+            if self.emergency_settings.get("recovery", {}).get("reset_on_desync", True):
+                self.synchronizer.reset()
+            return False
+
+        return True
+
+    def emergency_pause(self, reason: str) -> None:
+        """Pausa de emergencia del bot y notifica a la interfaz."""
+        global bot_running
+        bot_running = False
+
+        self.safety_checks["emergency_stops"] += 1
+
+        socketio.emit(
+            "status_update",
+            {"log": f"🚨 PARADA DE EMERGENCIA: {reason}", "status": "EMERGENCIA"},
+        )
+
+        emergency_event = {
+            "timestamp": time.time(),
+            "event_type": "EMERGENCY_STOP",
+            "reason": reason,
+            "safety_stats": self.safety_checks.copy(),
+        }
+        self.logger.log(emergency_event)
+
+    def verify_game_state(self) -> bool:
+        if not (self.fsm and self.game_state):
+            return False
+
+        try:
+            windows = pyautogui.getWindowsWithTitle("Caliente.mx")
+            if not windows:
+                windows = pyautogui.getWindowsWithTitle("Caliente")
+            return bool(windows)
+        except Exception:
+            return False
+
+    def verify_action_effect(self, action_request: Dict, result: Dict) -> bool:
+        if not result.get("ok"):
+            return False
+        if not self.actuator:
+            return False
+
+        action_type = action_request.get("type")
+        payload = action_request.get("payload", {})
+        try:
+            return self.actuator._validate_action_effect(  # type: ignore[attr-defined]
+                action_type,
+                payload,
+                getattr(self.actuator, "_last_action_snapshot", None),
+            )
+        except Exception:
+            return True
+
+    def execute_with_verification(self, action_request: Dict) -> Dict:
+        if not self.safety_check():
+            return {"ok": False, "error": "Safety check failed"}
+
+        if not self.verify_game_state():
+            self.emergency_pause("Game state verification failed")
+            return {"ok": False, "error": "Game state verification failed"}
+
+        if not self.safety_wrapper:
+            return {"ok": False, "error": "Safety wrapper not initialized"}
+
+        result = self.safety_wrapper.safe_execute(action_request)
+
+        if (
+            not result.get("ok")
+            and result.get("error") == "Safety limit reached - stopping bot"
+        ):
+            self.emergency_pause(result.get("error", "Safety limit reached"))
+            return result
+
+        if result.get("ok") and not self.verify_action_effect(action_request, result):
+            result = result.copy()
+            result["ok"] = False
+            result["error"] = "Action effect verification failed"
+            self.emergency_pause("Action effect verification failed")
+
+        if result.get("ok"):
+            self.safety_checks["last_successful_action"] = time.time()
+        else:
+            if self.emergency_settings.get("safety", {}).get("auto_recalibration_enabled", True):
+                if self.actuator:
+                    self.actuator.trigger_recalibration()
+
+        if self.health_monitor:
+            self.health_monitor.update_action_result(result.get("ok", False))
+
+        self._maybe_emit_health_report()
+        return result
+
     def _execute_play_action(self, decision: Dict) -> None:
         if not self.actuator:
             return
@@ -402,7 +637,7 @@ class BotOrchestrator:
                 },
             }
 
-            confirmation = self.actuator.execute_action(action_request)
+            confirmation = self.execute_with_verification(action_request)
             self.logger.log(confirmation)
 
             if confirmation.get("ok"):
@@ -444,7 +679,7 @@ class BotOrchestrator:
                 },
             }
 
-            confirmation = self.actuator.execute_action(action_request)
+            confirmation = self.execute_with_verification(action_request)
             self.logger.log(confirmation)
 
             if confirmation.get("ok"):
@@ -524,6 +759,8 @@ class BotOrchestrator:
                 )
         except Exception as exc:
             print(f"Error updating bankroll: {exc}")
+            if self.health_monitor:
+                self.health_monitor.increment_bankroll_failure()
 
 
 # --- El Motor del Bot ---
