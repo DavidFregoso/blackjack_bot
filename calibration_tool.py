@@ -1,8 +1,10 @@
-"""Herramienta interactiva para capturar y calibrar imágenes objetivo del módulo M4.
+"""Herramienta interactiva mejorada para capturar y calibrar imágenes objetivo del módulo M4.
 
-Esta utilidad guía al operador paso a paso para crear las plantillas que utiliza el
-actuador del bot de Blackjack. Se incluyen ayudas visuales, validaciones automáticas
-y manejo básico de errores para evitar configuraciones inconsistentes.
+Esta utilidad incorpora un sistema híbrido de calibración que combina detección
+automática optimizada para la mesa *All Bets Blackjack* con un flujo manual de
+respaldo cuando es necesario. El objetivo es reducir la intervención humana,
+agilizar la configuración inicial y mantener compatibilidad con el flujo clásico
+de calibración.
 """
 from __future__ import annotations
 
@@ -11,7 +13,7 @@ import sys
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, Optional, Tuple
+from typing import Dict, List, Optional, Tuple
 
 import cv2
 import numpy as np
@@ -26,6 +28,7 @@ class TargetDescriptor:
     description: str
     filename: Optional[str] = None
     expected_size: Optional[Tuple[int, int]] = None
+    relative_coords: Optional[Tuple[float, float]] = None
 
 
 class CalibrationTool:
@@ -55,6 +58,9 @@ class CalibrationTool:
         self.current_screenshot: Optional[np.ndarray] = None
         self.current_selection: Optional[Tuple[int, int, int, int]] = None
 
+        # Caché simple para reutilizar la ventana detectada previamente
+        self._cached_window_signature: Optional[Tuple[str, int, int, int, int]] = None
+
         self.calibration_config: Dict[str, Dict[str, TargetDescriptor]] = {
             "buttons": {
                 "hit_button": TargetDescriptor(
@@ -62,30 +68,35 @@ class CalibrationTool:
                     filename="hit_button.png",
                     description="Botón verde '+' para pedir carta",
                     expected_size=(80, 40),
+                    relative_coords=(0.75, 0.85),
                 ),
                 "stand_button": TargetDescriptor(
                     name="Botón PLANTARSE / STAND",
                     filename="stand_button.png",
                     description="Botón rojo 'Ø' para plantarse",
                     expected_size=(80, 40),
+                    relative_coords=(0.85, 0.85),
                 ),
                 "double_button": TargetDescriptor(
                     name="Botón DOBLAR / DOUBLE",
                     filename="double_button.png",
                     description="Botón amarillo 'x2' para doblar",
                     expected_size=(80, 40),
+                    relative_coords=(0.65, 0.85),
                 ),
                 "chip_25": TargetDescriptor(
                     name="Ficha de 25",
                     filename="chip_25.png",
                     description="Ficha de valor 25 (habitualmente color rojo o verde)",
                     expected_size=(50, 50),
+                    relative_coords=(0.45, 0.75),
                 ),
                 "chip_100": TargetDescriptor(
                     name="Ficha de 100",
                     filename="chip_100.png",
                     description="Ficha de valor 100 (habitualmente color negro)",
                     expected_size=(50, 50),
+                    relative_coords=(0.55, 0.75),
                 ),
             },
             "rois": {
@@ -93,29 +104,452 @@ class CalibrationTool:
                     name="Área del bankroll",
                     description="Región donde aparece el saldo actual del jugador",
                     expected_size=(150, 30),
+                    relative_coords=(0.85, 0.05),
+                ),
+                "dealer_cards": TargetDescriptor(
+                    name="Cartas del crupier",
+                    description="Región donde aparecen las cartas del crupier",
+                    expected_size=(200, 120),
+                    relative_coords=(0.50, 0.20),
+                ),
+                "player_cards": TargetDescriptor(
+                    name="Cartas del jugador",
+                    description="Región donde aparecen las cartas del jugador principal",
+                    expected_size=(250, 150),
+                    relative_coords=(0.50, 0.65),
+                ),
+                "game_status": TargetDescriptor(
+                    name="Estado del juego",
+                    description="Zona donde aparecen los mensajes principales del juego",
+                    expected_size=(400, 80),
+                    relative_coords=(0.50, 0.45),
+                ),
+                "others_cards_area": TargetDescriptor(
+                    name="Área de cartas de otros jugadores",
+                    description="Región ampliada para divisiones y manos adicionales",
+                    expected_size=(1200, 200),
+                    relative_coords=(0.50, 0.40),
                 ),
             },
         }
+
+        # Patrones de búsqueda ordenados por prioridad para encontrar la ventana correcta
+        self.window_search_patterns: List[Dict[str, object]] = [
+            {
+                "title_keywords": ["All Bets Blackjack"],
+                "priority": 100,
+                "description": "Título específico del juego",
+            },
+            {
+                "title_keywords": ["Caliente.mx", "Casino"],
+                "min_size": (1000, 700),
+                "priority": 90,
+                "description": "Ventana de Caliente con casino",
+            },
+            {
+                "title_keywords": ["Caliente.mx", "Blackjack"],
+                "priority": 85,
+                "description": "Caliente con blackjack en título",
+            },
+            {
+                "title_keywords": ["Caliente"],
+                "min_size": (800, 600),
+                "priority": 70,
+                "description": "Ventana principal de Caliente",
+            },
+            {
+                "title_keywords": ["Chrome", "Caliente"],
+                "priority": 60,
+                "description": "Chrome con Caliente en título",
+            },
+            {
+                "title_keywords": ["Chrome"],
+                "min_size": (1200, 800),
+                "url_indicators": ["caliente"],
+                "priority": 50,
+                "description": "Chrome grande (probablemente el juego)",
+            },
+        ]
 
     # ------------------------------------------------------------------
     # Entrada principal
     # ------------------------------------------------------------------
     def run_calibration(self) -> bool:
-        """Ejecuta el proceso completo de calibración."""
+        """Ejecuta el proceso completo de calibración con flujo híbrido."""
         self._print_banner()
 
-        print("\n🔍 Detectando ventana del juego…")
-        self._show_available_windows()
+        print("\n🔍 Detectando ventana de 'All Bets Blackjack'…")
+        game_window = self._find_game_window_enhanced()
 
-        if not self._verify_game_window():
+        if not game_window:
             print("\n⚠️  No se pudo detectar automáticamente la ventana del juego.")
             print("Asegúrate de que:")
-            print("  1. Caliente.mx esté abierto en tu navegador")
-            print("  2. La mesa de Blackjack esté visible y activa")
+            print("  1. Caliente.mx esté abierto con la mesa de All Bets Blackjack")
+            print("  2. La mesa esté visible y activa")
             print("  3. La ventana no esté minimizada ni cubierta por otras aplicaciones")
 
-            if not self._prompt_yes_no("¿Quieres continuar de todas formas? [s/N]: ", default=False):
+            if not self._prompt_yes_no("¿Quieres continuar con calibración manual? [s/N]: ", default=False):
                 return False
+            return self._run_manual_calibration()
+
+        print("\n🎯 Configurando sistema híbrido…")
+        if not self._setup_preconfigured_coordinates(game_window):
+            print("❌ Error configurando coordenadas automáticas. Se recurrirá al modo manual.")
+            return self._run_manual_calibration()
+
+        print("\n🔍 Verificando detección de botones…")
+        verification_passed = 0
+        total_buttons = len(self.calibration_config["buttons"])
+        for button_id, descriptor in self.calibration_config["buttons"].items():
+            if self._verify_with_template_matching(button_id, descriptor):
+                verification_passed += 1
+
+        print(f"\n📊 Verificación automática: {verification_passed}/{total_buttons} botones detectables")
+
+        if verification_passed >= max(1, int(total_buttons * 0.6)):
+            print("✅ Sistema híbrido configurado correctamente.")
+            self._update_settings_config()
+            print(f"📁 Plantillas guardadas en: {self.output_dir.resolve()}")
+            print(f"🛠  Configuración actualizada en: {self.settings_path.resolve()}")
+            return True
+
+        print("⚠️  Baja tasa de detección automática. Se continuará con calibración manual completa.")
+        return self._run_manual_calibration()
+
+    # ------------------------------------------------------------------
+    # Sistema de detección mejorado
+    # ------------------------------------------------------------------
+    def _window_signature(self, window) -> Tuple[str, int, int, int, int]:
+        title = getattr(window, "title", "") or ""
+        return (
+            title.strip(),
+            int(getattr(window, "left", 0)),
+            int(getattr(window, "top", 0)),
+            int(getattr(window, "width", 0)),
+            int(getattr(window, "height", 0)),
+        )
+
+    def _find_game_window_enhanced(self) -> Optional[object]:
+        """Sistema mejorado de detección de ventana específica."""
+        print("🔍 Buscando ventana de 'All Bets Blackjack'…")
+
+        try:
+            all_windows = pyautogui.getAllWindows()
+        except Exception as exc:
+            print(f"❌ Error obteniendo ventanas: {exc}")
+            return None
+
+        if not all_windows:
+            print("❌ No se encontraron ventanas abiertas para analizar.")
+            return None
+
+        # Intento rápido usando la caché almacenada
+        if self._cached_window_signature:
+            cached_title, _cached_left, _cached_top, cached_width, cached_height = (
+                self._cached_window_signature
+            )
+            for window in all_windows:
+                title = getattr(window, "title", "") or ""
+                if not title.strip():
+                    continue
+                signature = self._window_signature(window)
+                if (
+                    signature[0].lower() == cached_title.lower()
+                    and abs(signature[3] - cached_width) <= 30
+                    and abs(signature[4] - cached_height) <= 30
+                ):
+                    try:
+                        window.activate()
+                        time.sleep(1.0)
+                    except Exception as exc:
+                        print(f"⚠️  Error reactivando ventana en caché: {exc}")
+                    else:
+                        print(f"🧠 Ventana en caché reutilizada: {signature[0]}")
+                    self._cached_window_signature = signature
+                    return window
+
+        candidates: List[Dict[str, object]] = []
+        for window in all_windows:
+            title = getattr(window, "title", "") or ""
+            title = title.strip()
+            if len(title) < 3:
+                continue
+
+            score = self._score_window(window, title)
+            if score <= 0:
+                continue
+
+            signature = self._window_signature(window)
+            candidates.append(
+                {
+                    "window": window,
+                    "title": signature[0],
+                    "score": score,
+                    "width": signature[3],
+                    "height": signature[4],
+                    "signature": signature,
+                }
+            )
+
+        if not candidates:
+            print("❌ No se encontraron ventanas candidatas que coincidan con los patrones.")
+            return None
+
+        candidates.sort(key=lambda item: int(item["score"]), reverse=True)
+
+        print("📋 Ventanas candidatas encontradas:")
+        for index, candidate in enumerate(candidates[:5]):
+            print(
+                f"  {index + 1}. {candidate['title']} "
+                f"(Score: {candidate['score']}, Size: {candidate['width']}x{candidate['height']})"
+            )
+
+        if len(candidates) > 1 and int(candidates[1]["score"]) >= 70:
+            selected = self._user_select_window(candidates)
+            if selected is not None:
+                return selected
+            return None
+
+        best_candidate = candidates[0]
+        try:
+            best_candidate["window"].activate()
+            time.sleep(1.5)
+        except Exception as exc:
+            print(f"⚠️  Error activando ventana: {exc}")
+
+        self._cached_window_signature = best_candidate["signature"]
+        print(f"✅ Ventana seleccionada automáticamente: {best_candidate['title']}")
+        return best_candidate["window"]
+
+    def _score_window(self, window, title: str) -> int:
+        """Calcula puntuación de ventana basada en patrones específicos."""
+        title_lower = title.lower()
+        score = 0
+
+        for pattern in self.window_search_patterns:
+            pattern_score = 0
+
+            keywords = pattern.get("title_keywords", [])
+            for keyword in keywords:
+                if keyword and str(keyword).lower() in title_lower:
+                    pattern_score += 20
+
+            min_size = pattern.get("min_size")
+            if min_size and hasattr(window, "width") and hasattr(window, "height"):
+                if window.width >= min_size[0] and window.height >= min_size[1]:
+                    pattern_score += 10
+                else:
+                    pattern_score = max(0, pattern_score - 15)
+
+            if pattern_score > 0:
+                priority = int(pattern.get("priority", 0))
+                score = max(score, priority + pattern_score - 20)
+
+        return score
+
+    def _user_select_window(self, candidates: List[Dict[str, object]]) -> Optional[object]:
+        """Permite al usuario seleccionar entre múltiples ventanas candidatas."""
+        print("\n🤔 Se encontraron múltiples ventanas candidatas: ")
+        print("Selecciona la ventana correcta del juego:")
+
+        limited = candidates[:5]
+        for index, candidate in enumerate(limited):
+            print(f"  {index + 1}. {candidate['title']}")
+            print(
+                f"     Tamaño: {candidate['width']}x{candidate['height']} | "
+                f"Puntuación: {candidate['score']}"
+            )
+            print()
+
+        while True:
+            choice = input("Ingresa el número (1-5) o 'c' para cancelar: ").strip().lower()
+            if choice == "c":
+                return None
+
+            try:
+                index = int(choice) - 1
+            except ValueError:
+                print("❌ Por favor ingresa un número válido.")
+                continue
+
+            if 0 <= index < len(limited):
+                selected = limited[index]
+                try:
+                    selected["window"].activate()
+                    time.sleep(1.5)
+                except Exception as exc:
+                    print(f"⚠️  Error activando la ventana seleccionada: {exc}")
+
+                self._cached_window_signature = selected["signature"]
+                print(f"✅ Seleccionada: {selected['title']}")
+                return selected["window"]
+
+            print("❌ Número fuera de rango, intenta nuevamente.")
+
+    # ------------------------------------------------------------------
+    # Sistema híbrido - Coordenadas automáticas
+    # ------------------------------------------------------------------
+    def _setup_preconfigured_coordinates(self, game_window) -> bool:
+        """Configura coordenadas preconfiguradas basadas en la ventana del juego."""
+        if not game_window:
+            return False
+
+        print("🎯 Configurando coordenadas preconfiguradas…")
+
+        window_width = int(getattr(game_window, "width", 1200))
+        window_height = int(getattr(game_window, "height", 800))
+        window_left = int(getattr(game_window, "left", 0))
+        window_top = int(getattr(game_window, "top", 0))
+
+        self._roi_data.clear()
+
+        for roi_id, descriptor in self.calibration_config["rois"].items():
+            if not descriptor.relative_coords:
+                continue
+
+            rel_x, rel_y = descriptor.relative_coords
+            exp_width, exp_height = descriptor.expected_size or (100, 50)
+
+            center_x = int(window_left + window_width * rel_x)
+            center_y = int(window_top + window_height * rel_y)
+
+            left = center_x - exp_width // 2
+            top = center_y - exp_height // 2
+
+            roi_data = {
+                "left": left,
+                "top": top,
+                "width": exp_width,
+                "height": exp_height,
+            }
+
+            self._roi_data[roi_id] = roi_data
+            self._roi_settings[roi_id] = roi_data
+            print(
+                f"✅ ROI {descriptor.name}: x={left}, y={top}, w={exp_width}, h={exp_height}"
+            )
+
+        try:
+            screenshot = self._capture_screenshot()
+        except Exception as exc:
+            print(f"❌ No se pudo capturar la pantalla para extraer botones: {exc}")
+            return False
+
+        auto_success = True
+        for button_id, descriptor in self.calibration_config["buttons"].items():
+            if not descriptor.relative_coords or not descriptor.filename:
+                continue
+
+            if self._extract_button_from_coordinates(
+                screenshot, game_window, button_id, descriptor
+            ):
+                print(f"✅ Botón {descriptor.name} extraído automáticamente")
+            else:
+                print(f"⚠️  No se pudo extraer automáticamente {descriptor.name}")
+                auto_success = False
+
+        return auto_success
+
+    def _extract_button_from_coordinates(
+        self,
+        screenshot: np.ndarray,
+        game_window,
+        _button_id: str,
+        descriptor: TargetDescriptor,
+    ) -> bool:
+        """Extrae imagen de botón usando coordenadas relativas."""
+        if not descriptor.relative_coords or not descriptor.filename:
+            return False
+
+        window_width = int(getattr(game_window, "width", screenshot.shape[1]))
+        window_height = int(getattr(game_window, "height", screenshot.shape[0]))
+        window_left = int(getattr(game_window, "left", 0))
+        window_top = int(getattr(game_window, "top", 0))
+
+        rel_x, rel_y = descriptor.relative_coords
+        exp_width, exp_height = descriptor.expected_size or (80, 40)
+
+        center_x = int(window_left + window_width * rel_x)
+        center_y = int(window_top + window_height * rel_y)
+
+        margin = 20
+        extract_left = max(0, center_x - exp_width // 2 - margin)
+        extract_top = max(0, center_y - exp_height // 2 - margin)
+        extract_right = min(screenshot.shape[1], center_x + exp_width // 2 + margin)
+        extract_bottom = min(screenshot.shape[0], center_y + exp_height // 2 + margin)
+
+        extracted_region = screenshot[extract_top:extract_bottom, extract_left:extract_right]
+
+        if extracted_region.size == 0:
+            return False
+
+        valid, message = self._validate_button_image(
+            extracted_region, descriptor.expected_size
+        )
+        if not valid:
+            print(f"⚠️  Región extraída no válida para {descriptor.name}: {message}")
+            return False
+
+        output_path = self.output_dir / descriptor.filename
+        try:
+            cv2.imwrite(str(output_path), extracted_region)
+        except Exception as exc:
+            print(f"❌ Error guardando {output_path}: {exc}")
+            return False
+
+        return True
+
+    def _verify_with_template_matching(
+        self, _button_id: str, descriptor: TargetDescriptor
+    ) -> bool:
+        """Verifica que el botón extraído se pueda encontrar en pantalla."""
+        if not descriptor.filename:
+            return True
+
+        template_path = self.output_dir / descriptor.filename
+        if not template_path.exists():
+            return False
+
+        try:
+            screenshot = self._capture_screenshot()
+            template = cv2.imread(str(template_path))
+            if template is None:
+                print(f"⚠️  No se pudo leer la plantilla {template_path} para verificación.")
+                return False
+
+            gray_screenshot = cv2.cvtColor(screenshot, cv2.COLOR_BGR2GRAY)
+            gray_template = cv2.cvtColor(template, cv2.COLOR_BGR2GRAY)
+
+            scales = [0.8, 0.9, 1.0, 1.1, 1.2]
+            best_confidence = 0.0
+            for scale in scales:
+                if scale != 1.0:
+                    width = int(gray_template.shape[1] * scale)
+                    height = int(gray_template.shape[0] * scale)
+                    if width <= 0 or height <= 0:
+                        continue
+                    scaled_template = cv2.resize(gray_template, (width, height))
+                else:
+                    scaled_template = gray_template
+
+                result = cv2.matchTemplate(
+                    gray_screenshot, scaled_template, cv2.TM_CCOEFF_NORMED
+                )
+                _, max_val, _, _ = cv2.minMaxLoc(result)
+                best_confidence = max(best_confidence, float(max_val))
+
+            print(f"   Verificación {descriptor.name}: confianza {best_confidence:.2f}")
+            return best_confidence > 0.7
+        except Exception as exc:
+            print(f"⚠️  Error en verificación de {descriptor.name}: {exc}")
+            return False
+
+    # ------------------------------------------------------------------
+    # Entrada manual (respaldo)
+    # ------------------------------------------------------------------
+    def _run_manual_calibration(self) -> bool:
+        """Ejecuta la calibración manual completa como respaldo."""
+        print("\n📸 Iniciando calibración manual…")
 
         print("\n🔘 Calibrando botones de acción…")
         for target_id, descriptor in self.calibration_config["buttons"].items():
@@ -128,7 +562,7 @@ class CalibrationTool:
                 print(f"⚠️  Se omitió la calibración de {descriptor.name}.")
 
         self._update_settings_config()
-        print("\n✅ Calibración completada.")
+        print("\n✅ Calibración manual completada.")
         print(f"📁 Plantillas guardadas en: {self.output_dir.resolve()}")
         print(f"🛠  Configuración actualizada en: {self.settings_path.resolve()}")
         return True
@@ -489,98 +923,6 @@ class CalibrationTool:
         screenshot = pyautogui.screenshot()
         screenshot_np = np.array(screenshot)
         return cv2.cvtColor(screenshot_np, cv2.COLOR_RGB2BGR)
-
-    def _show_available_windows(self) -> None:
-        """Muestra una lista de ventanas relevantes detectadas por el sistema."""
-        try:
-            all_windows = pyautogui.getAllWindows()
-        except Exception as exc:
-            print(f"⚠️  Error listando ventanas disponibles: {exc}")
-            return
-
-        print("\n📋 Ventanas detectadas:")
-        relevant_keywords = [
-            "caliente",
-            "blackjack",
-            "casino",
-            "chrome",
-            "firefox",
-            "edge",
-            "safari",
-        ]
-
-        relevant_windows = []
-        for window in all_windows:
-            title = getattr(window, "title", "") or ""
-            if not title.strip():
-                continue
-            lowered = title.lower()
-            if any(keyword in lowered for keyword in relevant_keywords):
-                relevant_windows.append(window)
-
-        if not relevant_windows:
-            print("  ❌ No se encontraron ventanas relevantes.")
-            return
-
-        try:
-            active_window = pyautogui.getActiveWindow()
-        except Exception:
-            active_window = None
-
-        for idx, window in enumerate(relevant_windows[:10], start=1):
-            is_active = active_window is not None and window == active_window
-            status = "✅ ACTIVA" if is_active else "  "
-            title = getattr(window, "title", "")
-            width = getattr(window, "width", "?")
-            height = getattr(window, "height", "?")
-            left = getattr(window, "left", "?")
-            top = getattr(window, "top", "?")
-            print(f"  {idx:2d}. {status} {title[:60]}")
-            print(f"      📐 Tamaño: {width}x{height}, Posición: ({left}, {top})")
-
-    def _verify_game_window(self) -> bool:
-        print("🔍 Buscando la ventana del juego 'All Bets Blackjack'…")
-        search_patterns = [
-            "Caliente",
-            "All Bets Blackjack",
-            "Blackjack",
-            "Chrome",
-            "Firefox",
-            "Edge",
-        ]
-
-        try:
-            for pattern in search_patterns:
-                try:
-                    windows = pyautogui.getWindowsWithTitle(pattern)
-                except Exception as exc:
-                    print(f"⚠️  Error al buscar ventanas con el patrón '{pattern}': {exc}")
-                    continue
-
-                if not windows:
-                    continue
-
-                target_window = windows[0]
-                try:
-                    target_window.activate()
-                    time.sleep(1)
-                except Exception as exc:
-                    print(
-                        f"⚠️  No se pudo activar la ventana coincidente con '{pattern}': {exc}"
-                    )
-                    continue
-
-                title = getattr(target_window, "title", pattern)
-                print(f"✅ Ventana encontrada y activada: {title}")
-                return True
-
-            print(
-                "❌ No se encontró la ventana del juego de forma automática."
-            )
-            return False
-        except Exception as exc:
-            print(f"⚠️  Error al verificar la ventana: {exc}")
-            return False
 
     def _prompt_yes_no(self, prompt: str, default: bool = True) -> bool:
         response = input(prompt).strip().lower()
