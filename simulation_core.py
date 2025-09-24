@@ -3,6 +3,7 @@ from m2_cerebro.contador import CardCounter
 from m3_decision.orquestador import DecisionOrchestrator
 from m3_decision.gestion_riesgo import RiskState
 from simulador.simulador_m1 import M1Simulator
+from m5_metricas.logger import EventLogger
 
 
 class BlackjackSystem:
@@ -15,11 +16,25 @@ class BlackjackSystem:
         stop_loss_pct: float,
         max_rounds: int | None = 1000,
     ):
+        self.logger = EventLogger()
         self.counter = CardCounter(system=counting_system)
         self.decision_maker = DecisionOrchestrator(initial_bankroll=initial_bankroll)
         self.decision_maker.risk_manager.stop_loss_pct = stop_loss_pct
         self.m1_sim = M1Simulator(max_rounds=max_rounds)
         self.bankroll_history = [initial_bankroll]
+
+        self.logger.log(
+            {
+                "event_type": "SESSION_START",
+                "round_id": None,
+                "data": {
+                    "initial_bankroll": initial_bankroll,
+                    "counting_system": counting_system,
+                    "stop_loss_pct": stop_loss_pct,
+                    "max_rounds": max_rounds,
+                },
+            }
+        )
 
     def process_event(self, event: Event):
         if event.event_type == EventType.ROUND_END:
@@ -50,6 +65,7 @@ class BlackjackSystem:
     def run(self):
         """Ejecuta una simulación completa y devuelve los resultados."""
         for event in self.m1_sim.generate_events():
+            self.logger.log(event)
             self.process_event(event)
             risk_state, _, _ = self.decision_maker.risk_manager.evaluate_risk()
             if risk_state == RiskState.STOPPED:
@@ -57,4 +73,11 @@ class BlackjackSystem:
 
         final_status = self.decision_maker.get_status()
         final_status['bankroll_history'] = self.bankroll_history
+        self.logger.log(
+            {
+                "event_type": "SESSION_END",
+                "round_id": None,
+                "data": final_status,
+            }
+        )
         return final_status
