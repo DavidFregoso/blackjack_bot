@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <title>Blackjack Bot - Control Panel</title>
+    <style>
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; display: flex; background: #1a1a1a; color: #f0f0f0; margin: 0; padding: 0; height: 100vh; }
+        .sidebar { width: 300px; background: #2a2a2a; padding: 20px; border-right: 1px solid #444; }
+        .main-content { flex-grow: 1; padding: 20px; display: flex; flex-direction: column; }
+        h1, h2 { color: #00aaff; border-bottom: 2px solid #00aaff; padding-bottom: 5px; }
+        .control-group, .kpi-group { margin-bottom: 25px; }
+        button { font-size: 1.2em; padding: 10px 20px; width: 100%; border-radius: 5px; border: none; cursor: pointer; }
+        #startButton { background: #008800; color: white; }
+        #stopButton { background: #aa0000; color: white; }
+        .kpi { background: #252525; padding: 15px; border-radius: 5px; text-align: center; }
+        .kpi-label { font-size: 0.9em; color: #aaa; }
+        .kpi-value { font-size: 1.8em; font-weight: bold; }
+        #log-container { flex-grow: 1; display: flex; flex-direction: column; }
+        #log { flex-grow: 1; background: #111; border: 1px solid #444; padding: 10px; overflow-y: scroll; white-space: pre-wrap; font-family: monospace; }
+    </style>
+</head>
+<body>
+    <div class="sidebar">
+        <h2>Controles</h2>
+        <div class="control-group">
+            <button id="startButton">▶️ Iniciar Bot</button>
+        </div>
+        <div class="control-group">
+            <button id="stopButton" disabled>🛑 Detener Bot</button>
+        </div>
+        
+        <h2>Configuración</h2>
+        <div class="control-group">
+            <label for="systemSelect">Sistema de Conteo:</label>
+            <select id="systemSelect" style="width: 100%; padding: 5px;">
+                <option value="hilo">Hi-Lo</option>
+                <option value="zen">Zen</option>
+            </select>
+        </div>
+        <div class="control-group">
+            <label for="stoplossInput">Stop-Loss (%):</label>
+            <input type="number" id="stoplossInput" value="20" style="width: 100%; padding: 5px;">
+        </div>
+    </div>
+
+    <div class="main-content">
+        <h1>📊 Panel de Estado en Vivo</h1>
+        <div class="kpi-group" style="display: flex; gap: 15px;">
+            <div class="kpi" style="flex: 1;">
+                <div class="kpi-label">Estado Actual</div>
+                <div class="kpi-value" id="botStatus">Detenido</div>
+            </div>
+            <div class="kpi" style="flex: 1;">
+                <div class="kpi-label">True Count</div>
+                <div class="kpi-value" id="trueCount">N/A</div>
+            </div>
+        </div>
+        <div class="kpi-group" style="display: flex; gap: 15px;">
+            <div class="kpi" style="flex: 1;">
+                <div class="kpi-label">Bankroll / P&L</div>
+                <div class="kpi-value" id="bankrollStatus">N/A</div>
+            </div>
+        </div>
+        <div id="log-container">
+            <h3>📜 Historial de Cartas Vistas y Acciones</h3>
+            <div id="log"></div>
+        </div>
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.1/socket.io.js"></script>
+    <script>
+        const socket = io();
+        const startBtn = document.getElementById('startButton');
+        const stopBtn = document.getElementById('stopButton');
+        const logDiv = document.getElementById('log');
+
+        startBtn.onclick = () => {
+            const config = {
+                system: document.getElementById('systemSelect').value,
+                stoploss: document.getElementById('stoplossInput').value / 100
+            };
+            fetch('/start', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(config)
+            });
+            startBtn.disabled = true;
+            stopBtn.disabled = false;
+        };
+
+        stopBtn.onclick = () => {
+            fetch('/stop', { method: 'POST' });
+            startBtn.disabled = false;
+            stopBtn.disabled = true;
+            document.getElementById('botStatus').textContent = "Detenido";
+        };
+
+        socket.on('status_update', function(data) {
+            document.getElementById('botStatus').textContent = data.status || 'N/A';
+            document.getElementById('trueCount').textContent = data.tc !== undefined ? data.tc.toFixed(2) : 'N/A';
+            
+            if (data.bankroll !== undefined) {
+                const pnl = data.pnl >= 0 ? `+$${data.pnl.toFixed(2)}` : `-$${Math.abs(data.pnl).toFixed(2)}`;
+                document.getElementById('bankrollStatus').textContent = `$${data.bankroll.toFixed(2)} (${pnl})`;
+            }
+
+            const logEntry = document.createElement('p');
+            logEntry.style.margin = '2px 0';
+            logEntry.innerHTML = `<strong>${data.log}</strong>`;
+            logDiv.appendChild(logEntry);
+            logDiv.scrollTop = logDiv.scrollHeight;
+        });
+    </script>
+</body>
+</html>
