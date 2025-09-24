@@ -177,10 +177,70 @@ def find_tesseract_executable():
 
     candidates = []
     if system == "windows":
-        candidates = [
-            r"C:\\Program Files\\Tesseract-OCR\\tesseract.exe",
-            r"C:\\Program Files (x86)\\Tesseract-OCR\\tesseract.exe"
+        # Rutas comunes instaladas por el instalador oficial
+        candidates.extend(
+            [
+                Path(r"C:\\Program Files\\Tesseract-OCR"),
+                Path(r"C:\\Program Files (x86)\\Tesseract-OCR"),
+            ]
+        )
+
+        # Directorios informados mediante variables de entorno (mejora para instalaciones no estándar)
+        env_vars = ["PROGRAMFILES", "PROGRAMFILES(X86)", "PROGRAMW6432", "LOCALAPPDATA"]
+        for var in env_vars:
+            base_dir = os.environ.get(var)
+            if base_dir:
+                candidates.append(Path(base_dir) / "Tesseract-OCR")
+
+        # Instalaciones por usuario
+        user_candidates = [
+            Path.home() / "AppData" / "Local" / "Programs" / "Tesseract-OCR",
+            Path.home() / "AppData" / "Local" / "Tesseract-OCR",
         ]
+        candidates.extend(user_candidates)
+
+        # Consultar el registro de Windows cuando esté disponible
+        try:
+            import winreg  # type: ignore
+
+            registry_keys = [
+                (winreg.HKEY_LOCAL_MACHINE, r"SOFTWARE\Tesseract-OCR"),
+                (winreg.HKEY_LOCAL_MACHINE, r"SOFTWARE\WOW6432Node\Tesseract-OCR"),
+                (winreg.HKEY_CURRENT_USER, r"SOFTWARE\Tesseract-OCR"),
+            ]
+            for hive, key_path in registry_keys:
+                try:
+                    with winreg.OpenKey(hive, key_path) as key:
+                        install_dir, _ = winreg.QueryValueEx(key, "InstallDir")
+                        if install_dir:
+                            candidates.append(Path(install_dir))
+                except OSError:
+                    continue
+        except ImportError:
+            # El módulo `winreg` solo existe en Windows; ignorar cuando no esté disponible
+            pass
+
+        # Convertir las rutas de carpeta en candidatos al ejecutable
+        exe_candidates = []
+        for candidate in candidates:
+            candidate_path = Path(candidate)
+            if candidate_path.is_file() and candidate_path.name.lower() == "tesseract.exe":
+                exe_candidates.append(candidate_path)
+            else:
+                exe_candidates.append(candidate_path / "tesseract.exe")
+
+        # Buscar el ejecutable en los candidatos detectados
+        for exe_candidate in exe_candidates:
+            if exe_candidate.exists():
+                return str(exe_candidate), False
+
+        # Último intento: buscar en subdirectorios inmediatos para instalaciones personalizadas
+        for base_dir in {Path(c) for c in candidates if Path(c).exists()}:
+            try:
+                for exe_candidate in base_dir.glob("**/tesseract.exe"):
+                    return str(exe_candidate), False
+            except Exception:
+                continue
     elif system == "darwin":
         candidates = [
             "/opt/homebrew/bin/tesseract",
@@ -211,13 +271,21 @@ def verify_tesseract_installation():
     executable_path, from_path = find_tesseract_executable()
     if executable_path:
         pytesseract.pytesseract.tesseract_cmd = executable_path
+        if not from_path:
+            tesseract_dir = str(Path(executable_path).parent)
+            current_path = os.environ.get("PATH", "")
+            if tesseract_dir not in current_path.split(os.pathsep):
+                os.environ["PATH"] = (
+                    tesseract_dir + os.pathsep + current_path if current_path else tesseract_dir
+                )
 
     try:
         version = pytesseract.get_tesseract_version()
         print(f"   ✅ Tesseract OCR funcionando (versión {version})")
         if executable_path and not from_path:
             print(f"   ℹ️ Se detectó Tesseract en: {executable_path}")
-            print("   🔧 Considera agregar esta ruta al PATH del sistema.")
+            print("   🔧 Se agregó temporalmente esta ruta al PATH de la sesión actual.")
+            print("   📌 Agrega esta carpeta al PATH del sistema para evitar futuros problemas.")
         return True
     except (pytesseract.TesseractNotFoundError, FileNotFoundError) as error:
         print("   ❌ Tesseract OCR no funciona correctamente")
