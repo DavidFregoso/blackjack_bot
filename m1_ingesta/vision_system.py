@@ -86,6 +86,7 @@ class VisionSystem:
         self.round_id = round_id
         self.recognizer = recognizer or CardRecognizer()
         self._running = False
+        self.last_frame: Optional[np.ndarray] = None
 
         self.rois: Dict[str, RegionOfInterest] = {}
         for name, roi in rois.items():
@@ -109,8 +110,7 @@ class VisionSystem:
         self._running = True
         try:
             while self._running:
-                frame = self._grab_frame()
-                events = list(self._process_frame(frame))
+                frame, events = self.capture()
 
                 for event in events:
                     yield event
@@ -123,6 +123,13 @@ class VisionSystem:
         """Detiene el bucle en la siguiente iteración."""
 
         self._running = False
+
+    def capture(self) -> tuple[np.ndarray, List[Event]]:
+        """Captura un frame y retorna los eventos detectados."""
+
+        frame = self._grab_frame()
+        events = list(self._process_frame(frame))
+        return frame, events
 
     # ------------------------------------------------------------------
     # Procesamiento de cada frame
@@ -161,7 +168,16 @@ class VisionSystem:
         screenshot = self.sct.grab(monitor)
         frame = np.array(screenshot)
         frame = cv2.cvtColor(frame, cv2.COLOR_BGRA2BGR)
+        self.last_frame = frame
         return frame
+
+    def get_last_frame(self) -> Optional[np.ndarray]:
+        """Devuelve la última captura disponible."""
+
+        if self.last_frame is None:
+            return None
+
+        return self.last_frame.copy()
 
     # ------------------------------------------------------------------
     # Reconocimiento de cartas

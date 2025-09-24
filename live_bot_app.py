@@ -6,6 +6,7 @@ import json
 import pyautogui
 
 # Importa todos tus módulos
+from bankroll_reader import BankrollTracker
 from m1_ingesta.vision_system import VisionSystem, RegionOfInterest
 from m2_cerebro.contador import CardCounter
 from m2_cerebro.fsm import GameFSM
@@ -59,40 +60,55 @@ def bot_worker(config):
     vision = VisionSystem(rois, monitor_index=0) # Asumimos monitor 0 ahora que tenemos la ventana
     brain = DecisionOrchestrator(initial_bankroll=1000) # El bankroll real se leerá
     fsm = GameFSM()
+    bankroll_tracker = BankrollTracker(initial_bankroll=1000)
 
     socketio.emit('status_update', {'log': 'Bot iniciado y escaneando pantalla...', 'status': 'Escaneando'})
-    
+
     # --- Bucle Principal del Bot ---
     while bot_running:
-        for event in vision.run():
-            if not bot_running: break
-            
+        frame, events = vision.capture()
+
+        for event in events:
+            if not bot_running:
+                break
+
             # 1. Registrar y actualizar UI con lo que ve M1
             logger.log(event)
             socketio.emit('status_update', {'log': f"EVENTO M1: {event.event_type} | Data: {event.data}"})
-            
+
             # 2. M2 procesa el evento
             brain.counter.process_card(event) # Simplificación, se necesita más lógica
             fsm.process_event(event)
-            
+
             # Actualizar TC en la UI
             tc_snapshot = brain.counter.get_snapshot()
             socketio.emit('status_update', {'tc': tc_snapshot['tc_current']})
-            
+
             # 3. M3 decide si la FSM está en estado de acción
             if fsm.current_phase == "my_action":
                 socketio.emit('status_update', {'status': 'Decidiendo jugada...'})
                 # Lógica de decisión
                 # action_request = brain.decide_play(...)
                 # logger.log(action_request)
-                
+
                 # 4. M4 ejecuta la acción
                 # confirmation = actuator.execute_action(action_request)
                 # logger.log(confirmation)
                 # socketio.emit('status_update', {'status': 'Acción ejecutada', 'last_action': confirmation['reason']})
-            
-            time.sleep(0.1)
-        if not bot_running: break
+
+        if not bot_running:
+            break
+
+        if 'bankroll_area' in rois:
+            bankroll_roi = rois['bankroll_area']
+            bankroll_image = bankroll_roi.extract(frame)
+            current_bankroll, success = bankroll_tracker.update_from_roi(bankroll_image)
+
+            if success:
+                brain.risk_manager.update_bankroll(current_bankroll)
+                socketio.emit('status_update', {'bankroll': current_bankroll})
+
+        time.sleep(vision.poll_interval)
 
     print("🤖 Hilo del Bot detenido.")
     socketio.emit('status_update', {'log': 'Bot detenido por el usuario.', 'status': 'Detenido'})
