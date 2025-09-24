@@ -50,7 +50,15 @@ def pre_flight_check() -> bool:
 
     # 2. Verificar imágenes objetivo
     target_dir = Path("m4_actuacion/target_images/")
-    required_images = ["hit_button.png", "stand_button.png", "double_button.png"]
+    required_images = [
+        "hit_button.png",
+        "stand_button.png",
+        "double_button.png",
+        "chip_25.png",
+        "chip_100.png",
+        "chip_500.png",
+        "betting_area.png",
+    ]
 
     missing_images = [img for img in required_images if not (target_dir / img).exists()]
     if not missing_images:
