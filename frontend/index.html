@@ -2,113 +2,847 @@
 <html lang="es">
 <head>
     <meta charset="UTF-8">
-    <title>Blackjack Bot - Control Panel</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>🎰 Blackjack Bot - Panel de Control v1.0</title>
     <style>
-        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; display: flex; background: #1a1a1a; color: #f0f0f0; margin: 0; padding: 0; height: 100vh; }
-        .sidebar { width: 300px; background: #2a2a2a; padding: 20px; border-right: 1px solid #444; }
-        .main-content { flex-grow: 1; padding: 20px; display: flex; flex-direction: column; }
-        h1, h2 { color: #00aaff; border-bottom: 2px solid #00aaff; padding-bottom: 5px; }
-        .control-group, .kpi-group { margin-bottom: 25px; }
-        button { font-size: 1.2em; padding: 10px 20px; width: 100%; border-radius: 5px; border: none; cursor: pointer; }
-        #startButton { background: #008800; color: white; }
-        #stopButton { background: #aa0000; color: white; }
-        .kpi { background: #252525; padding: 15px; border-radius: 5px; text-align: center; }
-        .kpi-label { font-size: 0.9em; color: #aaa; }
-        .kpi-value { font-size: 1.8em; font-weight: bold; }
-        #log-container { flex-grow: 1; display: flex; flex-direction: column; }
-        #log { flex-grow: 1; background: #111; border: 1px solid #444; padding: 10px; overflow-y: scroll; white-space: pre-wrap; font-family: monospace; }
+        :root {
+            --primary-color: #00aaff;
+            --success-color: #00aa00;
+            --warning-color: #ffaa00;
+            --danger-color: #ff4444;
+            --dark-bg: #1a1a1a;
+            --card-bg: #2a2a2a;
+            --border-color: #444;
+            --text-primary: #f0f0f0;
+            --text-secondary: #aaa;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            background: var(--dark-bg);
+            color: var(--text-primary);
+            display: flex;
+            height: 100vh;
+            overflow: hidden;
+        }
+
+        .sidebar {
+            width: 350px;
+            background: var(--card-bg);
+            padding: 20px;
+            border-right: 1px solid var(--border-color);
+            overflow-y: auto;
+        }
+
+        .main-content {
+            flex-grow: 1;
+            display: flex;
+            flex-direction: column;
+            padding: 20px;
+            overflow: hidden;
+        }
+
+        h1, h2, h3 {
+            color: var(--primary-color);
+            margin-bottom: 15px;
+            border-bottom: 2px solid var(--primary-color);
+            padding-bottom: 8px;
+        }
+
+        h1 {
+            font-size: 1.8em;
+            text-align: center;
+            margin-bottom: 25px;
+        }
+
+        h2 {
+            font-size: 1.3em;
+        }
+
+        h3 {
+            font-size: 1.1em;
+            border-bottom: 1px solid var(--primary-color);
+        }
+
+        .control-section {
+            margin-bottom: 30px;
+            background: rgba(255, 255, 255, 0.05);
+            padding: 15px;
+            border-radius: 8px;
+            border: 1px solid var(--border-color);
+        }
+
+        .button-group {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+            margin-bottom: 15px;
+        }
+
+        button {
+            font-size: 1em;
+            padding: 12px 20px;
+            border-radius: 6px;
+            border: none;
+            cursor: pointer;
+            font-weight: 600;
+            transition: all 0.3s ease;
+            min-width: 120px;
+            position: relative;
+        }
+
+        button:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        .btn-primary { background: var(--primary-color); color: white; }
+        .btn-success { background: var(--success-color); color: white; }
+        .btn-warning { background: var(--warning-color); color: white; }
+        .btn-danger { background: var(--danger-color); color: white; }
+
+        button:not(:disabled):hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.3);
+        }
+
+        .form-group {
+            margin-bottom: 15px;
+        }
+
+        label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: 500;
+            color: var(--text-secondary);
+        }
+
+        input, select {
+            width: 100%;
+            padding: 10px;
+            background: var(--dark-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 4px;
+            color: var(--text-primary);
+            font-size: 1em;
+        }
+
+        input:focus, select:focus {
+            outline: none;
+            border-color: var(--primary-color);
+            box-shadow: 0 0 0 2px rgba(0, 170, 255, 0.2);
+        }
+
+        .status-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+            margin-bottom: 20px;
+        }
+
+        .status-card {
+            background: var(--card-bg);
+            padding: 20px;
+            border-radius: 8px;
+            text-align: center;
+            border: 1px solid var(--border-color);
+            transition: all 0.3s ease;
+        }
+
+        .status-card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+        }
+
+        .status-label {
+            font-size: 0.9em;
+            color: var(--text-secondary);
+            margin-bottom: 8px;
+        }
+
+        .status-value {
+            font-size: 1.8em;
+            font-weight: bold;
+            margin-bottom: 5px;
+        }
+
+        .status-healthy { color: var(--success-color); }
+        .status-warning { color: var(--warning-color); }
+        .status-error { color: var(--danger-color); }
+        .status-info { color: var(--primary-color); }
+
+        .log-container {
+            flex-grow: 1;
+            display: flex;
+            flex-direction: column;
+            min-height: 0;
+        }
+
+        .log-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 10px;
+        }
+
+        .log-controls {
+            display: flex;
+            gap: 10px;
+            align-items: center;
+        }
+
+        #logOutput {
+            flex-grow: 1;
+            background: #111;
+            border: 1px solid var(--border-color);
+            padding: 15px;
+            overflow-y: auto;
+            font-family: 'Courier New', monospace;
+            font-size: 0.9em;
+            line-height: 1.4;
+            border-radius: 6px;
+            white-space: pre-wrap;
+            min-height: 200px;
+        }
+
+        .log-entry {
+            margin: 3px 0;
+            padding: 2px 0;
+        }
+
+        .log-entry.info { color: #87CEEB; }
+        .log-entry.success { color: #90EE90; }
+        .log-entry.warning { color: #FFD700; }
+        .log-entry.error { color: #FF6B6B; }
+        .log-entry.system { color: #DDA0DD; }
+
+        .window-detection {
+            background: rgba(0, 170, 255, 0.1);
+            border: 1px solid var(--primary-color);
+            border-radius: 6px;
+            padding: 15px;
+            margin-bottom: 15px;
+        }
+
+        .window-status {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 10px;
+        }
+
+        .window-indicator {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            background: var(--danger-color);
+            animation: pulse 2s infinite;
+        }
+
+        .window-indicator.connected {
+            background: var(--success-color);
+            animation: none;
+        }
+
+        @keyframes pulse {
+            0% { opacity: 1; }
+            50% { opacity: 0.5; }
+            100% { opacity: 1; }
+        }
+
+        .progress-bar {
+            width: 100%;
+            height: 6px;
+            background: var(--border-color);
+            border-radius: 3px;
+            overflow: hidden;
+            margin-top: 10px;
+        }
+
+        .progress-fill {
+            height: 100%;
+            background: var(--primary-color);
+            transition: width 0.3s ease;
+            width: 0%;
+        }
+
+        .calibration-section {
+            display: none;
+        }
+
+        .calibration-section.active {
+            display: block;
+        }
+
+        .health-indicator {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 0.9em;
+        }
+
+        .health-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: var(--success-color);
+        }
+
+        .toggle-switch {
+            position: relative;
+            display: inline-block;
+            width: 50px;
+            height: 24px;
+        }
+
+        .toggle-switch input {
+            opacity: 0;
+            width: 0;
+            height: 0;
+        }
+
+        .toggle-slider {
+            position: absolute;
+            cursor: pointer;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background-color: var(--border-color);
+            transition: .4s;
+            border-radius: 24px;
+        }
+
+        .toggle-slider:before {
+            position: absolute;
+            content: "";
+            height: 18px;
+            width: 18px;
+            left: 3px;
+            bottom: 3px;
+            background-color: white;
+            transition: .4s;
+            border-radius: 50%;
+        }
+
+        input:checked + .toggle-slider {
+            background-color: var(--primary-color);
+        }
+
+        input:checked + .toggle-slider:before {
+            transform: translateX(26px);
+        }
     </style>
 </head>
 <body>
     <div class="sidebar">
-        <h2>Controles</h2>
-        <div class="control-group">
-            <button id="startButton">▶️ Iniciar Bot</button>
-        </div>
-        <div class="control-group">
-            <button id="stopButton" disabled>🛑 Detener Bot</button>
-        </div>
+        <h1>🎰 Blackjack Bot v1.0</h1>
         
-        <h2>Configuración</h2>
-        <div class="control-group">
-            <label for="systemSelect">Sistema de Conteo:</label>
-            <select id="systemSelect" style="width: 100%; padding: 5px;">
-                <option value="hilo">Hi-Lo</option>
-                <option value="zen">Zen</option>
-            </select>
+        <!-- Detección de Ventana -->
+        <div class="control-section">
+            <h3>🎮 Detección de Ventana</h3>
+            <div class="window-detection">
+                <div class="window-status">
+                    <div class="window-indicator" id="windowIndicator"></div>
+                    <span id="windowStatus">Desconectado</span>
+                </div>
+                <div class="button-group">
+                    <button class="btn-primary" onclick="detectWindow()">🔍 Detectar Ventana</button>
+                    <button class="btn-warning" onclick="refreshWindow()">🔄 Actualizar</button>
+                </div>
+                <div id="windowInfo" style="display: none;">
+                    <small>Ventana: <span id="windowTitle"></span></small>
+                </div>
+            </div>
         </div>
-        <div class="control-group">
-            <label for="stoplossInput">Stop-Loss (%):</label>
-            <input type="number" id="stoplossInput" value="20" style="width: 100%; padding: 5px;">
+
+        <!-- Controles Principales -->
+        <div class="control-section">
+            <h3>🎮 Controles Principales</h3>
+            <div class="button-group">
+                <button id="startButton" class="btn-success" onclick="startBot()">▶️ Iniciar Bot</button>
+                <button id="stopButton" class="btn-danger" onclick="stopBot()" disabled>🛑 Detener Bot</button>
+            </div>
+            <div class="button-group">
+                <button class="btn-warning" onclick="showCalibration()">📸 Calibrar</button>
+                <button class="btn-primary" onclick="testSystems()">🧪 Probar Sistema</button>
+            </div>
+        </div>
+
+        <!-- Configuración del Bot -->
+        <div class="control-section">
+            <h3>⚙️ Configuración</h3>
+            
+            <div class="form-group">
+                <label for="systemSelect">Sistema de Conteo:</label>
+                <select id="systemSelect">
+                    <option value="hilo">Hi-Lo (Recomendado)</option>
+                    <option value="zen">Zen Count (Avanzado)</option>
+                </select>
+            </div>
+
+            <div class="form-group">
+                <label for="initialBankroll">Bankroll Inicial ($):</label>
+                <input type="number" id="initialBankroll" value="1000" min="100" step="50">
+            </div>
+
+            <div class="form-group">
+                <label for="stopLossInput">Stop-Loss (%):</label>
+                <input type="number" id="stopLossInput" value="15" min="5" max="50" step="5">
+            </div>
+
+            <div class="form-group">
+                <label for="maxBetInput">Apuesta Máxima ($):</label>
+                <input type="number" id="maxBetInput" value="200" min="25" step="25">
+            </div>
+
+            <div class="form-group">
+                <label for="unitValueInput">Valor por Unidad ($):</label>
+                <input type="number" id="unitValueInput" value="25" min="5" step="5">
+            </div>
+        </div>
+
+        <!-- Configuración Avanzada -->
+        <div class="control-section">
+            <h3>🔧 Configuración Avanzada</h3>
+            
+            <div class="form-group">
+                <label>
+                    <span>Modo Conservador</span>
+                    <label class="toggle-switch">
+                        <input type="checkbox" id="conservativeMode">
+                        <span class="toggle-slider"></span>
+                    </label>
+                </label>
+            </div>
+
+            <div class="form-group">
+                <label>
+                    <span>Auto-Calibración</span>
+                    <label class="toggle-switch">
+                        <input type="checkbox" id="autoCalibration" checked>
+                        <span class="toggle-slider"></span>
+                    </label>
+                </label>
+            </div>
+
+            <div class="form-group">
+                <label>
+                    <span>Logs Detallados</span>
+                    <label class="toggle-switch">
+                        <input type="checkbox" id="verboseLogs">
+                        <span class="toggle-slider"></span>
+                    </label>
+                </label>
+            </div>
+        </div>
+
+        <!-- Calibración (Oculta por defecto) -->
+        <div class="control-section calibration-section" id="calibrationSection">
+            <h3>📸 Calibración Visual</h3>
+            <div class="button-group">
+                <button class="btn-primary" onclick="startCalibration()">🎯 Iniciar Calibración</button>
+                <button class="btn-warning" onclick="resetCalibration()">🔄 Reset</button>
+            </div>
+            <div id="calibrationStatus">
+                <div class="progress-bar">
+                    <div class="progress-fill" id="calibrationProgress"></div>
+                </div>
+                <small id="calibrationText">Listo para calibrar</small>
+            </div>
         </div>
     </div>
 
     <div class="main-content">
-        <h1>📊 Panel de Estado en Vivo</h1>
-        <div class="kpi-group" style="display: flex; gap: 15px;">
-            <div class="kpi" style="flex: 1;">
-                <div class="kpi-label">Estado Actual</div>
-                <div class="kpi-value" id="botStatus">Detenido</div>
+        <!-- Estado en Vivo -->
+        <div class="status-grid">
+            <div class="status-card">
+                <div class="status-label">Estado del Bot</div>
+                <div class="status-value status-info" id="botStatus">Detenido</div>
+                <div class="health-indicator">
+                    <div class="health-dot" id="healthDot"></div>
+                    <span id="healthStatus">Sistema Saludable</span>
+                </div>
             </div>
-            <div class="kpi" style="flex: 1;">
-                <div class="kpi-label">True Count</div>
-                <div class="kpi-value" id="trueCount">N/A</div>
+            
+            <div class="status-card">
+                <div class="status-label">True Count</div>
+                <div class="status-value status-info" id="trueCount">--</div>
+                <small id="countingSystem">Sistema: Hi-Lo</small>
+            </div>
+            
+            <div class="status-card">
+                <div class="status-label">Bankroll</div>
+                <div class="status-value status-healthy" id="bankrollDisplay">$0</div>
+                <small id="pnlDisplay">P&L: $0</small>
+            </div>
+            
+            <div class="status-card">
+                <div class="status-label">Fase del Juego</div>
+                <div class="status-value status-info" id="gamePhase">Esperando</div>
+                <small id="roundInfo">Ronda: --</small>
+            </div>
+
+            <div class="status-card">
+                <div class="status-label">Última Acción</div>
+                <div class="status-value status-info" id="lastAction">--</div>
+                <small id="actionTime">--</small>
+            </div>
+
+            <div class="status-card">
+                <div class="status-label">Estadísticas</div>
+                <div class="status-value status-info" id="winRate">--</div>
+                <small id="handsPlayed">Manos: 0</small>
             </div>
         </div>
-        <div class="kpi-group" style="display: flex; gap: 15px;">
-            <div class="kpi" style="flex: 1;">
-                <div class="kpi-label">Bankroll / P&L</div>
-                <div class="kpi-value" id="bankrollStatus">N/A</div>
+
+        <!-- Log de Eventos -->
+        <div class="log-container">
+            <div class="log-header">
+                <h3>📜 Log de Eventos en Tiempo Real</h3>
+                <div class="log-controls">
+                    <button class="btn-primary" onclick="clearLogs()">🗑️ Limpiar</button>
+                    <button class="btn-warning" onclick="exportLogs()">📤 Exportar</button>
+                    <label class="toggle-switch">
+                        <input type="checkbox" id="autoScroll" checked>
+                        <span class="toggle-slider"></span>
+                    </label>
+                    <label for="autoScroll">Auto-scroll</label>
+                </div>
             </div>
-        </div>
-        <div id="log-container">
-            <h3>📜 Historial de Cartas Vistas y Acciones</h3>
-            <div id="log"></div>
+            <div id="logOutput"></div>
         </div>
     </div>
 
     <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.1/socket.io.js"></script>
     <script>
+        // Variables globales
         const socket = io();
-        const startBtn = document.getElementById('startButton');
-        const stopBtn = document.getElementById('stopButton');
-        const logDiv = document.getElementById('log');
+        let isCalibrating = false;
+        let windowConnected = false;
+        let logCount = 0;
+        const maxLogEntries = 1000;
 
-        startBtn.onclick = () => {
-            const config = {
-                system: document.getElementById('systemSelect').value,
-                stoploss: document.getElementById('stoplossInput').value / 100
-            };
-            fetch('/start', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(config)
-            });
-            startBtn.disabled = true;
-            stopBtn.disabled = false;
-        };
+        // Inicialización
+        document.addEventListener('DOMContentLoaded', function() {
+            updateSystemStatus('Iniciando sistema...', 'info');
+            detectWindow();
+            loadSavedConfig();
+        });
 
-        stopBtn.onclick = () => {
-            fetch('/stop', { method: 'POST' });
-            startBtn.disabled = false;
-            stopBtn.disabled = true;
-            document.getElementById('botStatus').textContent = "Detenido";
-        };
-
-        socket.on('status_update', function(data) {
-            document.getElementById('botStatus').textContent = data.status || 'N/A';
-            document.getElementById('trueCount').textContent = data.tc !== undefined ? data.tc.toFixed(2) : 'N/A';
+        // === DETECCIÓN DE VENTANA ===
+        async function detectWindow() {
+            updateSystemStatus('Buscando ventana del juego...', 'info');
             
-            if (data.bankroll !== undefined) {
-                const pnl = data.pnl >= 0 ? `+$${data.pnl.toFixed(2)}` : `-$${Math.abs(data.pnl).toFixed(2)}`;
-                document.getElementById('bankrollStatus').textContent = `$${data.bankroll.toFixed(2)} (${pnl})`;
+            try {
+                const response = await fetch('/detect_window', { method: 'POST' });
+                const result = await response.json();
+                
+                if (result.success) {
+                    windowConnected = true;
+                    document.getElementById('windowIndicator').classList.add('connected');
+                    document.getElementById('windowStatus').textContent = 'Conectado';
+                    document.getElementById('windowTitle').textContent = result.window_title;
+                    document.getElementById('windowInfo').style.display = 'block';
+                    updateSystemStatus(`Ventana detectada: ${result.window_title}`, 'success');
+                    
+                    // Habilitar botón de inicio
+                    document.getElementById('startButton').disabled = false;
+                } else {
+                    windowConnected = false;
+                    document.getElementById('windowIndicator').classList.remove('connected');
+                    document.getElementById('windowStatus').textContent = 'No encontrada';
+                    document.getElementById('windowInfo').style.display = 'none';
+                    updateSystemStatus('Ventana del juego no encontrada. Abrir Caliente.mx', 'warning');
+                    
+                    // Deshabilitar botón de inicio
+                    document.getElementById('startButton').disabled = true;
+                }
+            } catch (error) {
+                updateSystemStatus(`Error detectando ventana: ${error.message}`, 'error');
+            }
+        }
+
+        async function refreshWindow() {
+            await detectWindow();
+        }
+
+        // === CONTROLES PRINCIPALES ===
+        async function startBot() {
+            if (!windowConnected) {
+                updateSystemStatus('Error: Primero detecta la ventana del juego', 'error');
+                return;
             }
 
-            const logEntry = document.createElement('p');
-            logEntry.style.margin = '2px 0';
-            logEntry.innerHTML = `<strong>${data.log}</strong>`;
-            logDiv.appendChild(logEntry);
-            logDiv.scrollTop = logDiv.scrollHeight;
+            const config = gatherConfiguration();
+            updateSystemStatus('Iniciando bot con configuración...', 'info');
+
+            try {
+                const response = await fetch('/start', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(config)
+                });
+                
+                const result = await response.json();
+                
+                if (result.status === 'Bot iniciado') {
+                    document.getElementById('startButton').disabled = true;
+                    document.getElementById('stopButton').disabled = false;
+                    document.getElementById('botStatus').textContent = 'Iniciando...';
+                    updateSystemStatus('Bot iniciado correctamente', 'success');
+                } else {
+                    updateSystemStatus(`Error iniciando bot: ${result.error || 'Error desconocido'}`, 'error');
+                }
+            } catch (error) {
+                updateSystemStatus(`Error de conexión: ${error.message}`, 'error');
+            }
+        }
+
+        async function stopBot() {
+            updateSystemStatus('Deteniendo bot...', 'warning');
+            
+            try {
+                const response = await fetch('/stop', { method: 'POST' });
+                const result = await response.json();
+                
+                document.getElementById('startButton').disabled = false;
+                document.getElementById('stopButton').disabled = true;
+                document.getElementById('botStatus').textContent = 'Detenido';
+                updateSystemStatus('Bot detenido correctamente', 'success');
+            } catch (error) {
+                updateSystemStatus(`Error deteniendo bot: ${error.message}`, 'error');
+            }
+        }
+
+        // === CALIBRACIÓN ===
+        function showCalibration() {
+            const section = document.getElementById('calibrationSection');
+            section.classList.toggle('active');
+        }
+
+        async function startCalibration() {
+            if (!windowConnected) {
+                updateSystemStatus('Error: Primero detecta la ventana del juego', 'error');
+                return;
+            }
+
+            isCalibrating = true;
+            updateSystemStatus('Iniciando calibración visual...', 'info');
+            document.getElementById('calibrationText').textContent = 'Calibrando...';
+            
+            try {
+                const response = await fetch('/calibrate', { method: 'POST' });
+                const result = await response.json();
+                
+                if (result.status === 'Calibración exitosa') {
+                    updateSystemStatus('Calibración completada exitosamente', 'success');
+                    document.getElementById('calibrationProgress').style.width = '100%';
+                    document.getElementById('calibrationText').textContent = 'Calibración completada';
+                } else {
+                    updateSystemStatus(`Error en calibración: ${result.error}`, 'error');
+                    document.getElementById('calibrationText').textContent = 'Error en calibración';
+                }
+            } catch (error) {
+                updateSystemStatus(`Error iniciando calibración: ${error.message}`, 'error');
+            } finally {
+                isCalibrating = false;
+            }
+        }
+
+        function resetCalibration() {
+            document.getElementById('calibrationProgress').style.width = '0%';
+            document.getElementById('calibrationText').textContent = 'Listo para calibrar';
+            updateSystemStatus('Calibración reseteada', 'info');
+        }
+
+        // === PRUEBAS DEL SISTEMA ===
+        async function testSystems() {
+            updateSystemStatus('Ejecutando pruebas del sistema...', 'info');
+            
+            try {
+                const response = await fetch('/test_systems', { method: 'POST' });
+                const result = await response.json();
+                
+                if (result.success) {
+                    updateSystemStatus(`Pruebas completadas: ${result.passed}/${result.total} exitosas`, 'success');
+                } else {
+                    updateSystemStatus(`Pruebas fallidas: ${result.error}`, 'warning');
+                }
+            } catch (error) {
+                updateSystemStatus(`Error en pruebas: ${error.message}`, 'error');
+            }
+        }
+
+        // === CONFIGURACIÓN ===
+        function gatherConfiguration() {
+            return {
+                system: document.getElementById('systemSelect').value,
+                initial_bankroll: parseFloat(document.getElementById('initialBankroll').value),
+                stoploss: parseFloat(document.getElementById('stopLossInput').value) / 100,
+                max_bet: parseFloat(document.getElementById('maxBetInput').value),
+                unit_value: parseFloat(document.getElementById('unitValueInput').value),
+                conservative_mode: document.getElementById('conservativeMode').checked,
+                auto_calibration: document.getElementById('autoCalibration').checked,
+                verbose_logs: document.getElementById('verboseLogs').checked
+            };
+        }
+
+        function loadSavedConfig() {
+            // Cargar configuración guardada del localStorage
+            const saved = localStorage.getItem('blackjack_bot_config');
+            if (saved) {
+                try {
+                    const config = JSON.parse(saved);
+                    document.getElementById('systemSelect').value = config.system || 'hilo';
+                    document.getElementById('initialBankroll').value = config.initial_bankroll || 1000;
+                    document.getElementById('stopLossInput').value = (config.stoploss || 0.15) * 100;
+                    document.getElementById('maxBetInput').value = config.max_bet || 200;
+                    document.getElementById('unitValueInput').value = config.unit_value || 25;
+                    document.getElementById('conservativeMode').checked = config.conservative_mode || false;
+                    document.getElementById('autoCalibration').checked = config.auto_calibration !== false;
+                    document.getElementById('verboseLogs').checked = config.verbose_logs || false;
+                } catch (e) {
+                    console.warn('Error loading saved config:', e);
+                }
+            }
+        }
+
+        function saveConfig() {
+            const config = gatherConfiguration();
+            localStorage.setItem('blackjack_bot_config', JSON.stringify(config));
+        }
+
+        // Guardar configuración al cambiar
+        ['systemSelect', 'initialBankroll', 'stopLossInput', 'maxBetInput', 'unitValueInput', 
+         'conservativeMode', 'autoCalibration', 'verboseLogs'].forEach(id => {
+            document.getElementById(id).addEventListener('change', saveConfig);
+        });
+
+        // === LOGGING ===
+        function updateSystemStatus(message, level = 'info') {
+            addLogEntry(message, level);
+        }
+
+        function addLogEntry(message, level = 'info') {
+            const logOutput = document.getElementById('logOutput');
+            const timestamp = new Date().toLocaleTimeString();
+            const entry = document.createElement('div');
+            entry.className = `log-entry ${level}`;
+            entry.textContent = `[${timestamp}] ${message}`;
+            
+            logOutput.appendChild(entry);
+            
+            // Limitar número de entradas
+            logCount++;
+            if (logCount > maxLogEntries) {
+                logOutput.removeChild(logOutput.firstChild);
+                logCount--;
+            }
+            
+            // Auto-scroll si está habilitado
+            if (document.getElementById('autoScroll').checked) {
+                logOutput.scrollTop = logOutput.scrollHeight;
+            }
+        }
+
+        function clearLogs() {
+            document.getElementById('logOutput').innerHTML = '';
+            logCount = 0;
+            updateSystemStatus('Logs limpiados', 'info');
+        }
+
+        function exportLogs() {
+            const logs = document.getElementById('logOutput').textContent;
+            const blob = new Blob([logs], { type: 'text/plain' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `blackjack_bot_logs_${new Date().toISOString().slice(0, 19)}.txt`;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+            updateSystemStatus('Logs exportados', 'success');
+        }
+
+        // === SOCKET.IO EVENTOS ===
+        socket.on('status_update', function(data) {
+            // Actualizar estado del bot
+            if (data.status) {
+                document.getElementById('botStatus').textContent = data.status;
+            }
+
+            // Actualizar True Count
+            if (data.tc !== undefined) {
+                const tcElement = document.getElementById('trueCount');
+                tcElement.textContent = data.tc.toFixed(2);
+                
+                // Colorear según valor
+                tcElement.className = 'status-value';
+                if (data.tc > 2) tcElement.classList.add('status-healthy');
+                else if (data.tc > 0) tcElement.classList.add('status-info');
+                else if (data.tc > -2) tcElement.classList.add('status-warning');
+                else tcElement.classList.add('status-error');
+            }
+
+            // Actualizar bankroll y P&L
+            if (data.bankroll !== undefined) {
+                document.getElementById('bankrollDisplay').textContent = `$${data.bankroll.toFixed(2)}`;
+                
+                if (data.pnl !== undefined) {
+                    const pnlText = data.pnl >= 0 ? `+$${data.pnl.toFixed(2)}` : `-$${Math.abs(data.pnl).toFixed(2)}`;
+                    document.getElementById('pnlDisplay').textContent = `P&L: ${pnlText}`;
+                }
+            }
+
+            // Actualizar fase del juego
+            if (data.phase) {
+                document.getElementById('gamePhase').textContent = data.phase;
+            }
+
+            // Actualizar última acción
+            if (data.last_action) {
+                document.getElementById('lastAction').textContent = data.last_action;
+                document.getElementById('actionTime').textContent = new Date().toLocaleTimeString();
+            }
+
+            // Añadir al log si hay mensaje
+            if (data.log) {
+                const level = data.status && data.status.includes('ERROR') ? 'error' : 
+                             data.status && data.status.includes('WARNING') ? 'warning' : 'info';
+                addLogEntry(data.log, level);
+            }
+        });
+
+        socket.on('health_update', function(data) {
+            const healthDot = document.getElementById('healthDot');
+            const healthStatus = document.getElementById('healthStatus');
+            
+            healthDot.style.backgroundColor = 
+                data.status === 'HEALTHY' ? 'var(--success-color)' :
+                data.status === 'WARNING' ? 'var(--warning-color)' : 'var(--danger-color)';
+            
+            healthStatus.textContent = `Sistema: ${data.status}`;
+        });
+
+        socket.on('calibration_progress', function(data) {
+            if (isCalibrating) {
+                document.getElementById('calibrationProgress').style.width = `${data.progress}%`;
+                document.getElementById('calibrationText').textContent = data.message;
+                addLogEntry(`Calibración: ${data.message}`, 'system');
+            }
+        });
+
+        // Actualizar sistema de conteo cuando cambie
+        document.getElementById('systemSelect').addEventListener('change', function() {
+            document.getElementById('countingSystem').textContent = `Sistema: ${this.value.toUpperCase()}`;
         });
     </script>
 </body>
