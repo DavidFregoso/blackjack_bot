@@ -13,7 +13,8 @@ import pyautogui
 from flask import Flask, render_template, request
 from flask_socketio import SocketIO
 
-from m1_ingesta.vision_system import RegionOfInterest, VisionSystem
+# Módulos propios
+from m1_ingesta.vision_system import VisionSystem, RegionOfInterest
 from m2_cerebro.contador import CardCounter
 from m2_cerebro.estado_juego import GameState
 from m2_cerebro.fsm import GameFSM
@@ -21,7 +22,6 @@ from m3_decision.orquestador import DecisionOrchestrator
 from m4_actuacion.actuator import Actuator
 from m5_metricas.logger import EventLogger
 from utils.contratos import Card, Event, EventType, GamePhase
-
 from bankroll_reader import BankrollTracker
 
 # --- Configuración de la WebApp ---
@@ -88,7 +88,6 @@ class BotOrchestrator:
 
     def _find_game_window(self):
         """Encuentra y activa la ventana del juego en el sistema operativo."""
-
         try:
             windows = pyautogui.getWindowsWithTitle("Caliente.mx")
             if not windows:
@@ -101,17 +100,16 @@ class BotOrchestrator:
             game_window.activate()
             time.sleep(1)
             return game_window
-        except Exception as exc:  # pragma: no cover - depends on OS state
+        except Exception as exc:  # pragma: no cover - depende del SO
             print(f"Error finding game window: {exc}")
             return None
 
     def _load_rois(self, game_window) -> Dict[str, RegionOfInterest]:
         """Carga las ROIs desde configuración y las ajusta a la ventana detectada."""
-
         with open("configs/settings.json", "r", encoding="utf-8") as handler:
             settings = json.load(handler)
 
-        rois = {}
+        rois: Dict[str, RegionOfInterest] = {}
         for name, roi_config in settings.get("vision", {}).get("rois", {}).items():
             rois[name] = RegionOfInterest(
                 left=game_window.left + roi_config["left"],
@@ -186,7 +184,7 @@ class BotOrchestrator:
             elif cards_data.get("card"):
                 raw_cards = [cards_data["card"]]
 
-            target = cards_data.get("who") or cards_data.get("target") or ""
+            target = (cards_data.get("who") or cards_data.get("target") or "").lower()
             for card_str in raw_cards:
                 card = self._parse_card(card_str)
                 if not card:
@@ -467,6 +465,7 @@ class BotOrchestrator:
             )
 
     def _select_bet_chip(self, amount: float) -> Optional[str]:
+        """Selecciona la acción de ficha más adecuada basada en el mapa del actuador."""
         if not self.actuator:
             return None
 
@@ -491,6 +490,7 @@ class BotOrchestrator:
         return selected
 
     def _update_bankroll_if_needed(self, event: Event) -> None:
+        """Actualiza el bankroll si hay ROI disponible y el evento lo amerita."""
         if not (self.bankroll_tracker and self.rois):
             return
 
@@ -503,12 +503,12 @@ class BotOrchestrator:
 
         try:
             screenshot = pyautogui.screenshot()
-            screenshot_np = np.array(screenshot)
+            screenshot_np = np.array(screenshot)  # RGB
             bankroll_image = bankroll_roi.extract(screenshot_np)
             if bankroll_image.size == 0:
                 return
-            bankroll_image = cv2.cvtColor(bankroll_image, cv2.COLOR_RGB2BGR)
 
+            # BankrollReader maneja conversión a gris internamente; RGB/BGR no afecta a la conversión a gris
             current_bankroll, updated = self.bankroll_tracker.update_from_roi(
                 bankroll_image, self.last_bet_amount
             )
@@ -572,6 +572,7 @@ def stop_bot():
 
 @app.route("/calibrate", methods=["POST"])
 def run_calibration():
+    """Endpoint para ejecutar calibración desde la web."""
     try:
         from calibration_tool import CalibrationTool  # type: ignore
 
