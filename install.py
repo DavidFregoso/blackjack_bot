@@ -189,9 +189,9 @@ def main():
     
     # Paso 3: Instalar dependencias de Python
     print_step("Instalando dependencias de Python", 3)
-    run_command(f"{sys.executable} -m pip install --upgrade pip", 
+    run_command(f'"{sys.executable}" -m pip install --upgrade pip',
                 "Actualizando pip")
-    run_command(f"{sys.executable} -m pip install -r requirements.txt", 
+    run_command(f'"{sys.executable}" -m pip install -r requirements.txt',
                 "Instalando dependencias desde requirements.txt")
     
     # Paso 4: Instalar Tesseract OCR
