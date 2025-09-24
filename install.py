@@ -114,7 +114,7 @@ python live_bot_app.py
 pause
 """
     
-    with open("start_bot.bat", "w") as f:
+    with open("start_bot.bat", "w", encoding="utf-8") as f:
         f.write(windows_script)
     
     # Script para Unix/Linux/macOS
@@ -125,7 +125,7 @@ python3 live_bot_app.py
 read -p "Presiona ENTER para cerrar..."
 """
     
-    with open("start_bot.sh", "w") as f:
+    with open("start_bot.sh", "w", encoding="utf-8") as f:
         f.write(unix_script)
     
     # Hacer ejecutable en Unix
