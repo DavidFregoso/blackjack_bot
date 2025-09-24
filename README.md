@@ -2,7 +2,7 @@ Aviso: Proyecto educativo para simulador/UI propia. No usar en plataformas de ap
 
 🚀 Instalación Rápida (3 comandos)
 # 1) Clonar el repositorio
-git clone https://github.com/tu-usuario/blackjack-bot.git
+git clone https://github.com/DavidFregoso/blackjack_bot.git
 cd blackjack-bot
 
 
