@@ -45,6 +45,11 @@ class CalibrationTool:
         self._roi_data: Dict[str, Dict[str, int]] = {}
         self._roi_settings: Dict[str, Dict[str, int]] = self._load_existing_rois()
 
+        # Algunos sistemas lanzan excepciones si el cursor alcanza la esquina
+        # superior izquierda. Deshabilitamos el "failsafe" para evitar abortos
+        # inesperados durante la calibración interactiva.
+        pyautogui.FAILSAFE = False
+
         self.drawing = False
         self.start_point: Optional[Tuple[int, int]] = None
         self.current_screenshot: Optional[np.ndarray] = None
@@ -99,8 +104,18 @@ class CalibrationTool:
         """Ejecuta el proceso completo de calibración."""
         self._print_banner()
 
+        print("\n🔍 Detectando ventana del juego…")
+        self._show_available_windows()
+
         if not self._verify_game_window():
-            return False
+            print("\n⚠️  No se pudo detectar automáticamente la ventana del juego.")
+            print("Asegúrate de que:")
+            print("  1. Caliente.mx esté abierto en tu navegador")
+            print("  2. La mesa de Blackjack esté visible y activa")
+            print("  3. La ventana no esté minimizada ni cubierta por otras aplicaciones")
+
+            if not self._prompt_yes_no("¿Quieres continuar de todas formas? [s/N]: ", default=False):
+                return False
 
         print("\n🔘 Calibrando botones de acción…")
         for target_id, descriptor in self.calibration_config["buttons"].items():
@@ -475,28 +490,103 @@ class CalibrationTool:
         screenshot_np = np.array(screenshot)
         return cv2.cvtColor(screenshot_np, cv2.COLOR_RGB2BGR)
 
+    def _show_available_windows(self) -> None:
+        """Muestra una lista de ventanas relevantes detectadas por el sistema."""
+        try:
+            all_windows = pyautogui.getAllWindows()
+        except Exception as exc:
+            print(f"⚠️  Error listando ventanas disponibles: {exc}")
+            return
+
+        print("\n📋 Ventanas detectadas:")
+        relevant_keywords = [
+            "caliente",
+            "blackjack",
+            "casino",
+            "chrome",
+            "firefox",
+            "edge",
+            "safari",
+        ]
+
+        relevant_windows = []
+        for window in all_windows:
+            title = getattr(window, "title", "") or ""
+            if not title.strip():
+                continue
+            lowered = title.lower()
+            if any(keyword in lowered for keyword in relevant_keywords):
+                relevant_windows.append(window)
+
+        if not relevant_windows:
+            print("  ❌ No se encontraron ventanas relevantes.")
+            return
+
+        try:
+            active_window = pyautogui.getActiveWindow()
+        except Exception:
+            active_window = None
+
+        for idx, window in enumerate(relevant_windows[:10], start=1):
+            is_active = active_window is not None and window == active_window
+            status = "✅ ACTIVA" if is_active else "  "
+            title = getattr(window, "title", "")
+            width = getattr(window, "width", "?")
+            height = getattr(window, "height", "?")
+            left = getattr(window, "left", "?")
+            top = getattr(window, "top", "?")
+            print(f"  {idx:2d}. {status} {title[:60]}")
+            print(f"      📐 Tamaño: {width}x{height}, Posición: ({left}, {top})")
+
     def _verify_game_window(self) -> bool:
         print("🔍 Buscando la ventana del juego 'All Bets Blackjack'…")
+        search_patterns = [
+            "Caliente",
+            "All Bets Blackjack",
+            "Blackjack",
+            "Chrome",
+            "Firefox",
+            "Edge",
+        ]
+
         try:
-            windows = pyautogui.getWindowsWithTitle("Caliente")
-            if not windows:
-                windows = pyautogui.getWindowsWithTitle("Chrome")
-            if not windows:
-                print(
-                    "❌ No se encontró la ventana del juego. Asegúrate de que esté abierta y visible."
-                )
-                return False
-            windows[0].activate()
-            time.sleep(1)
-            print("✅ Ventana detectada y activada.")
-            return True
+            for pattern in search_patterns:
+                try:
+                    windows = pyautogui.getWindowsWithTitle(pattern)
+                except Exception as exc:
+                    print(f"⚠️  Error al buscar ventanas con el patrón '{pattern}': {exc}")
+                    continue
+
+                if not windows:
+                    continue
+
+                target_window = windows[0]
+                try:
+                    target_window.activate()
+                    time.sleep(1)
+                except Exception as exc:
+                    print(
+                        f"⚠️  No se pudo activar la ventana coincidente con '{pattern}': {exc}"
+                    )
+                    continue
+
+                title = getattr(target_window, "title", pattern)
+                print(f"✅ Ventana encontrada y activada: {title}")
+                return True
+
+            print(
+                "❌ No se encontró la ventana del juego de forma automática."
+            )
+            return False
         except Exception as exc:
             print(f"⚠️  Error al verificar la ventana: {exc}")
             return False
 
-    def _prompt_yes_no(self, prompt: str) -> bool:
+    def _prompt_yes_no(self, prompt: str, default: bool = True) -> bool:
         response = input(prompt).strip().lower()
-        return response in {"", "s", "si", "sí", "y", "yes"}
+        if not response:
+            return default
+        return response in {"s", "si", "sí", "y", "yes"}
 
     def _print_banner(self) -> None:
         print("🎯 Herramienta de Calibración del Blackjack Bot")
@@ -514,10 +604,19 @@ class CalibrationTool:
         try:
             from m4_actuacion.actuator import Actuator
         except Exception as exc:  # pragma: no cover - import dinámico
-            print(f"❌ No se pudo importar el actuador para la prueba: {exc}")
-            return
+            print(f"⚠️  No se pudo importar el actuador para la prueba: {exc}")
+            Actuator = None  # type: ignore
 
-        actuator = Actuator(image_path=str(self.output_dir))
+        actuator = None
+        if Actuator is not None:
+            try:
+                actuator = Actuator(image_path=str(self.output_dir))
+            except Exception as exc:
+                print(f"⚠️  No se pudo inicializar el actuador: {exc}")
+
+        if actuator is None:
+            print("ℹ️  Se utilizará una detección básica con PyAutoGUI.")
+
         for target_id, descriptor in self.calibration_config["buttons"].items():
             if not descriptor.filename:
                 continue
@@ -525,11 +624,29 @@ class CalibrationTool:
             if not template_path.exists():
                 print(f"❌ {descriptor.name}: la plantilla {template_path.name} no existe.")
                 continue
-            try:
-                location = actuator._find_image_on_screen(descriptor.filename, confidence=0.8)
-            except Exception as exc:
-                print(f"⚠️  Error durante la prueba de {descriptor.name}: {exc}")
-                continue
+            location = None
+            if actuator is not None:
+                try:
+                    location = actuator._find_image_on_screen(
+                        descriptor.filename, confidence=0.8
+                    )
+                except Exception as exc:
+                    print(
+                        f"⚠️  Error durante la prueba con el actuador de {descriptor.name}: {exc}"
+                    )
+
+            if location is None:
+                try:
+                    location = pyautogui.locateCenterOnScreen(
+                        str(template_path), confidence=0.8
+                    )
+                except pyautogui.ImageNotFoundException:
+                    location = None
+                except Exception as exc:
+                    print(
+                        f"⚠️  {descriptor.name}: Error durante la detección básica: {exc}"
+                    )
+                    continue
             if location:
                 print(f"✅ {descriptor.name}: detectado en {location}.")
             else:
@@ -538,7 +655,13 @@ class CalibrationTool:
 
 def main() -> None:
     print("Iniciando herramienta de calibración…")
-    print("Asegúrate de que el juego 'All Bets Blackjack' esté visible antes de continuar.")
+    print()
+    print("INSTRUCCIONES:")
+    print("1. Asegúrate de que Caliente.mx esté abierto en tu navegador")
+    print("2. Ve a la mesa de All Bets Blackjack y déjala visible")
+    print("3. Evita el modo pantalla completa; usa ventana normal")
+    print("4. Comprueba que la mesa no esté cubierta por otras ventanas")
+    print()
     input("Presiona ENTER para empezar…")
 
     calibrator = CalibrationTool()
