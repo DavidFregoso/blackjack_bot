@@ -71,9 +71,10 @@ Paso 1 — Simulador
 
 Usa tu simulador/UI propia. Ventana no a pantalla completa, esquina superior izquierda del monitor.
 
-Paso 2 — Calibración
+Paso 2 — Diagnóstico y Calibración
 
-python calibration_tool.py
+python diagnostics.py        # verifica ventanas activas/relevantes
+python calibration_tool.py   # inicia la calibración normal
 
 Controles: ESPACIO (capturar), ESC (omitir), R (actualizar).
 
@@ -105,7 +106,19 @@ M5 Métricas: Logging JSONL, dashboard, replay, health.
 
 “Ventana no encontrada”
 
-python -c "import pyautogui; print([w.title for w in pyautogui.getAllWindows()])"
+python diagnostics.py
+
+```bash
+python -c "
+import pyautogui
+print('Ventana activa:', pyautogui.getActiveWindow())
+windows = pyautogui.getAllWindows()
+relevant = [w for w in windows if 'caliente' in w.title.lower() or 'chrome' in w.title.lower()]
+print('Ventanas relevantes:')
+for w in relevant:
+    print(f'  - {w.title} [{w.width}x{w.height}]')
+"
+```
 
 “OCR no funciona”
 
