@@ -510,6 +510,10 @@
                 <button class="btn-warning" onclick="showCalibration()">📸 Calibrar</button>
                 <button class="btn-primary" onclick="testSystems()">🧪 Probar Sistema</button>
             </div>
+            <div class="button-group">
+                <button class="btn-primary" onclick="resetCount()">🃏 Nueva Baraja</button>
+                <button class="btn-danger" onclick="emergencyStop()">🚨 Emergencia</button>
+            </div>
         </div>
 
         <!-- Configuración del Bot -->
@@ -1154,6 +1158,39 @@
                 fetchSystemStatus();
             } catch (error) {
                 updateSystemStatus(`Error deteniendo bot: ${error.message}`, 'error');
+            }
+        }
+
+        async function resetCount() {
+            try {
+                const response = await fetch('/manual_count_reset', { method: 'POST' });
+                const data = await response.json();
+                const message = data.message || 'Contador reiniciado manualmente';
+                addLogEntry(message, 'system');
+                updateSystemStatus(message, 'info');
+            } catch (error) {
+                console.error('Error resetting count:', error);
+                addLogEntry('No se pudo reiniciar el conteo manualmente', 'error');
+                updateSystemStatus('Error reiniciando el conteo manual', 'error');
+            }
+        }
+
+        async function emergencyStop() {
+            updateSystemStatus('Parada de emergencia solicitada...', 'warning');
+
+            try {
+                const response = await fetch('/emergency_stop', { method: 'POST' });
+                const data = await response.json();
+                const message = data.message || 'Sistema detenido por emergencia';
+                addLogEntry(`🚨 ${message}`, 'error');
+                document.getElementById('startButton').disabled = false;
+                document.getElementById('stopButton').disabled = true;
+                document.getElementById('botStatus').textContent = 'Detenido';
+                updateSystemStatus(message, 'error');
+            } catch (error) {
+                console.error('Error executing emergency stop:', error);
+                addLogEntry('Fallo al activar la parada de emergencia', 'error');
+                updateSystemStatus(`Error activando emergencia: ${error.message}`, 'error');
             }
         }
 
