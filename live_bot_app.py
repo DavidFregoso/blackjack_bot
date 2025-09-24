@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import threading
 import time
+import webbrowser
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
 
@@ -760,36 +761,64 @@ class EnhancedBotOrchestrator:
             )
 
     def _plan_bet_clicks_enhanced(self, amount: float) -> List[Dict[str, Union[int, str]]]:
-        """Planificación mejorada de clics en fichas."""
+        """Planifica la secuencia de clics utilizando fichas disponibles."""
 
         if not self.actuator or amount <= 0:
             return []
 
-        available_chips = [("BET_100", 100), ("BET_25", 25)]
-        plan: List[Dict[str, Union[int, str]]] = []
+        try:
+            catalog = self.actuator.get_chip_catalog()  # type: ignore[attr-defined]
+        except AttributeError:
+            catalog = []
+
+        if not catalog:
+            catalog = [("BET_500", 500), ("BET_100", 100), ("BET_25", 25)]
+
+        catalog = sorted({(chip, value) for chip, value in catalog if value > 0}, key=lambda item: item[1], reverse=True)
+        if not catalog:
+            return []
+
         remaining = int(round(amount))
+        plan: List[Dict[str, Union[int, str]]] = []
+        max_steps = 12
 
-        for chip_type, value in available_chips:
-            if value <= remaining:
-                count = remaining // value
-                if count > 0:
-                    plan.append({"chip_type": chip_type, "count": count})
-                    remaining -= value * count
+        for chip_type, value in catalog:
+            if remaining < value:
+                continue
+            count = remaining // value
+            if count <= 0:
+                continue
+            plan.append({"chip_type": chip_type, "count": count, "chip_value": value})
+            remaining -= value * count
+            if len(plan) >= max_steps:
+                break
 
-        if remaining > 0 and plan:
-            smallest_chip = available_chips[-1]
-            plan.append({"chip_type": smallest_chip[0], "count": 1})
+        if remaining > 0 and catalog:
+            fallback_chip = catalog[-1]
+            plan.append({"chip_type": fallback_chip[0], "count": 1, "chip_value": fallback_chip[1]})
 
         return plan
 
     def _select_bet_chip_enhanced(self, amount: float) -> Optional[str]:
-        """Selección mejorada de ficha para apuesta."""
+        """Selecciona la mejor ficha única cuando no hay plan completo."""
 
-        if amount >= 100:
-            return "BET_100"
-        if amount >= 25:
-            return "BET_25"
-        return "BET_25"
+        if not self.actuator:
+            return None
+
+        try:
+            catalog = self.actuator.get_chip_catalog()  # type: ignore[attr-defined]
+        except AttributeError:
+            catalog = [("BET_500", 500), ("BET_100", 100), ("BET_25", 25)]
+
+        if not catalog:
+            return None
+
+        catalog = sorted(catalog, key=lambda item: item[1], reverse=True)
+        for chip_type, value in catalog:
+            if amount >= value:
+                return chip_type
+
+        return catalog[-1][0]
 
     def _update_bankroll_enhanced(self, event: Event) -> None:
         """Actualización mejorada del bankroll."""
@@ -932,6 +961,115 @@ def enhanced_bot_worker(config: Optional[Dict]) -> None:
             current_orchestrator = None
 
 
+def _detect_window_summary(force_refresh: bool = False) -> Dict[str, Any]:
+    """Devuelve un resumen estandarizado del estado de la ventana del juego."""
+
+    try:
+        detector = GameWindowDetector()
+        window = detector.get_game_window(force_refresh=force_refresh)
+
+        if not window:
+            return {
+                "success": False,
+                "connected": False,
+                "message": "Ventana del juego no encontrada",
+            }
+
+        window_info = {
+            "title": getattr(window, "title", ""),
+            "width": getattr(window, "width", 0),
+            "height": getattr(window, "height", 0),
+            "left": getattr(window, "left", 0),
+            "top": getattr(window, "top", 0),
+        }
+
+        return {
+            "success": True,
+            "connected": True,
+            "window_title": window_info["title"],
+            "window": window_info,
+            "message": f"Ventana detectada: {window_info['title'] or 'Sin título'}",
+        }
+    except Exception as exc:  # pragma: no cover - defensivo
+        return {
+            "success": False,
+            "connected": False,
+            "error": str(exc),
+            "message": "Error detectando ventana",
+        }
+
+
+def _check_calibration_assets() -> Dict[str, Any]:
+    """Verifica archivos críticos para ejecutar el bot sin calibración manual."""
+
+    config_files = [
+        Path("configs/settings.json"),
+        Path("configs/decision.json"),
+    ]
+    template_files = [
+        Path("m4_actuacion/target_images/hit_button.png"),
+        Path("m4_actuacion/target_images/stand_button.png"),
+        Path("m4_actuacion/target_images/double_button.png"),
+        Path("m4_actuacion/target_images/chip_25.png"),
+        Path("m4_actuacion/target_images/chip_100.png"),
+        Path("m4_actuacion/target_images/chip_500.png"),
+        Path("m4_actuacion/target_images/betting_area.png"),
+    ]
+
+    missing_configs = [str(path) for path in config_files if not path.exists()]
+    missing_templates = [str(path) for path in template_files if not path.exists()]
+
+    rois_count = 0
+    roi_error: Optional[str] = None
+    settings_path = config_files[0]
+    if settings_path.exists():
+        try:
+            with settings_path.open("r", encoding="utf-8") as handler:
+                settings_data = json.load(handler)
+            rois = settings_data.get("vision", {}).get("rois", {})
+            if isinstance(rois, dict):
+                rois_count = len(rois)
+        except Exception as exc:  # pragma: no cover - depende del archivo
+            roi_error = str(exc)
+
+    ok = not missing_configs and not missing_templates and rois_count > 0 and not roi_error
+
+    detail_parts = []
+    if missing_configs:
+        detail_parts.append(
+            "configuraciones faltantes: "
+            + ", ".join(Path(path).name for path in missing_configs)
+        )
+    if missing_templates:
+        detail_parts.append(
+            "imágenes faltantes: "
+            + ", ".join(Path(path).name for path in missing_templates)
+            + " (coloca los recortes PNG en m4_actuacion/target_images/)"
+        )
+    if roi_error:
+        detail_parts.append(f"error en ROIs: {roi_error}")
+    elif rois_count == 0:
+        detail_parts.append("sin ROIs configuradas en configs/settings.json")
+
+    if ok:
+        message = "Calibración lista"
+    elif detail_parts:
+        message = "Calibración incompleta (" + "; ".join(detail_parts) + ")"
+    else:
+        message = "Calibración incompleta"
+
+    return {
+        "ok": ok,
+        "message": message,
+        "missing": {
+            "configs": missing_configs,
+            "templates": missing_templates,
+        },
+        "rois_detected": rois_count,
+        "roi_error": roi_error,
+    }
+
+
 def _perform_enhanced_calibration() -> Dict[str, Any]:
     """Ejecuta la calibración y devuelve un resumen estructurado."""
 
@@ -1051,33 +1189,27 @@ def index():
 def detect_window() -> Dict[str, Any]:
     """Verifica el estado de la ventana de juego antes de iniciar el bot."""
 
-    try:
-        detector = GameWindowDetector()
-        window = detector.get_game_window(force_refresh=True)
+    result = _detect_window_summary(force_refresh=True)
+    result["timestamp"] = time.time()
+    return result
 
-        if not window:
-            return {
-                "success": False,
-                "error": "Ventana de All Bets Blackjack no encontrada",
-                "timestamp": time.time(),
-            }
 
-        window_info = {
-            "title": getattr(window, "title", ""),
-            "width": getattr(window, "width", 0),
-            "height": getattr(window, "height", 0),
-            "left": getattr(window, "left", 0),
-            "top": getattr(window, "top", 0),
-        }
+@app.route("/preflight", methods=["GET"])
+def preflight_check() -> Dict[str, Any]:
+    """Evalúa el estado de calibración y la disponibilidad de la ventana."""
 
-        return {
-            "success": True,
-            "window_title": window_info["title"],
-            "window": window_info,
-            "timestamp": time.time(),
-        }
-    except Exception as exc:  # pragma: no cover - defensivo
-        return {"success": False, "error": str(exc), "timestamp": time.time()}
+    calibration = _check_calibration_assets()
+    window_status = _detect_window_summary(force_refresh=False)
+
+    ready = bool(calibration.get("ok") and window_status.get("success"))
+
+    response = {
+        "ready": ready,
+        "timestamp": time.time(),
+        "calibration": calibration,
+        "window": window_status,
+    }
+    return response
 
 
 @app.route("/test_systems", methods=["POST"])
@@ -1173,6 +1305,22 @@ def get_enhanced_system_status():
         return {"error": str(exc), "timestamp": time.time()}
 
 
+def _launch_control_panel(host: str, port: int, delay: float = 1.0) -> None:
+    """Abre el panel de control en el navegador predeterminado."""
+
+    def _opener() -> None:
+        url = f"http://{host}:{port}"
+        try:
+            print(f"🌐 Abriendo panel de control en {url}")
+            webbrowser.open(url)
+        except Exception as exc:  # pragma: no cover - dependiente del SO
+            print(f"⚠️ No se pudo abrir el navegador automáticamente: {exc}")
+
+    timer = threading.Timer(delay, _opener)
+    timer.daemon = True
+    timer.start()
+
+
 if __name__ == "__main__":
     print("🚀 Iniciando Panel de Control Mejorado en http://127.0.0.1:5000")
     print("✨ Mejoras implementadas:")
@@ -1181,4 +1329,7 @@ if __name__ == "__main__":
     print("   • Visión optimizada para formato compartido")
     print("   • Actuador robusto sin dependencia de calibración manual")
 
-    socketio.run(app, host="127.0.0.1", port=5000, debug=False)
+    host = "127.0.0.1"
+    port = 5000
+    _launch_control_panel(host, port)
+    socketio.run(app, host=host, port=port, debug=False)

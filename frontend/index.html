@@ -230,6 +230,32 @@
             margin-bottom: 15px;
         }
 
+        .preflight-status {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            margin-bottom: 10px;
+        }
+
+        .preflight-item {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 8px 10px;
+            border-radius: 6px;
+            background: rgba(255, 255, 255, 0.03);
+            border: 1px solid rgba(255, 255, 255, 0.05);
+        }
+
+        .status-icon {
+            font-size: 1.4em;
+            transition: transform 0.3s ease, color 0.3s ease;
+        }
+
+        .status-icon.pending { color: var(--warning-color); }
+        .status-icon.ok { color: var(--success-color); }
+        .status-icon.fail { color: var(--danger-color); }
+
         .window-status {
             display: flex;
             align-items: center;
@@ -499,11 +525,33 @@
             </div>
         </div>
 
+        <!-- Pre-vuelo Automático -->
+        <div class="control-section">
+            <h3>🛫 Pre-vuelo</h3>
+            <div class="preflight-status">
+                <div class="preflight-item">
+                    <span class="status-icon pending" id="preflightCalibrationIcon">⏳</span>
+                    <div>
+                        <strong>Calibración</strong>
+                        <small id="preflightCalibrationText">Verificando recursos...</small>
+                    </div>
+                </div>
+                <div class="preflight-item">
+                    <span class="status-icon pending" id="preflightWindowIcon">⏳</span>
+                    <div>
+                        <strong>Ventana</strong>
+                        <small id="preflightWindowText">Esperando detección...</small>
+                    </div>
+                </div>
+            </div>
+            <small id="preflightHint">Completa ambos chequeos para habilitar el bot.</small>
+        </div>
+
         <!-- Controles Principales -->
         <div class="control-section">
             <h3>🎮 Controles Principales</h3>
             <div class="button-group">
-                <button id="startButton" class="btn-success" onclick="startBot()">▶️ Iniciar Bot</button>
+                <button id="startButton" class="btn-success" onclick="startBot()" disabled>▶️ Iniciar Bot</button>
                 <button id="stopButton" class="btn-danger" onclick="stopBot()" disabled>🛑 Detener Bot</button>
             </div>
             <div class="button-group">
@@ -751,12 +799,15 @@
         let statusPollInterval = null;
         let lastThinkingPayload = null;
         const TC_RANGE = { min: -6, max: 6 };
+        const preflightStatus = { calibration: false, window: false };
+        const preflightMessages = { calibration: '', window: '' };
+        let botActive = false;
 
         document.addEventListener('DOMContentLoaded', () => {
             updateSystemStatus('Iniciando sistema...', 'info');
-            detectWindow();
             loadSavedConfig();
-            preflightInterval = setInterval(() => detectWindow(false), 30000);
+            runPreflight(true);
+            preflightInterval = setInterval(() => runPreflight(false), 30000);
             statusPollInterval = setInterval(fetchSystemStatus, 15000);
             fetchSystemStatus();
         });
@@ -789,6 +840,72 @@
             }
         }
 
+        const PREFLIGHT_MAP = {
+            calibration: { icon: 'preflightCalibrationIcon', text: 'preflightCalibrationText' },
+            window: { icon: 'preflightWindowIcon', text: 'preflightWindowText' },
+        };
+
+        function setPreflightIndicator(key, state, message) {
+            const config = PREFLIGHT_MAP[key];
+            if (!config) return;
+
+            const icon = document.getElementById(config.icon);
+            const text = document.getElementById(config.text);
+            const states = { ok: '✅', fail: '❌', pending: '⏳' };
+            const iconChar = states[state] || states.pending;
+
+            if (icon) {
+                icon.textContent = iconChar;
+                icon.classList.remove('ok', 'fail', 'pending');
+                icon.classList.add(state || 'pending');
+            }
+
+            if (text) {
+                text.textContent = message || (state === 'ok' ? 'Listo' : 'Pendiente');
+            }
+
+            preflightMessages[key] = message || '';
+            preflightStatus[key] = state === 'ok';
+
+            if (key === 'window') {
+                windowConnected = state === 'ok';
+            }
+
+            refreshPreflightSummary();
+            updateStartButtonState();
+        }
+
+        function refreshPreflightSummary() {
+            const summary = document.getElementById('preflightSummary');
+            if (!summary) return;
+
+            if (preflightStatus.calibration && preflightStatus.window) {
+                summary.textContent = 'Pre-vuelo completado. ¡Listo para iniciar!';
+            } else if (!preflightStatus.calibration && !preflightStatus.window) {
+                summary.textContent = 'Verificando calibración y ventana del juego...';
+            } else if (!preflightStatus.calibration) {
+                summary.textContent = preflightMessages.calibration || 'Calibración incompleta. Ejecuta la herramienta.';
+            } else {
+                summary.textContent = preflightMessages.window || 'Abre la mesa de All Bets Blackjack.';
+            }
+        }
+
+        function updateStartButtonState() {
+            const startButton = document.getElementById('startButton');
+            if (!startButton) return;
+            const ready = preflightStatus.calibration && preflightStatus.window && !botActive;
+            startButton.disabled = !ready;
+        }
+
+        function setBotActive(active) {
+            botActive = active;
+            const stopButton = document.getElementById('stopButton');
+            if (stopButton) {
+                stopButton.disabled = !active;
+            }
+            updateStartButtonState();
+        }
+
         function updateWindowDisplay(info) {
             const indicator = document.getElementById('windowIndicator');
             const sidebarStatus = document.getElementById('windowStatus');
@@ -796,7 +913,6 @@
             const sidebarTitle = document.getElementById('windowTitle');
             const statusText = document.getElementById('windowStatusText');
             const titleLabel = document.getElementById('windowTitleLabel');
-            const preflightSummary = document.getElementById('preflightSummary');
 
             const isConnected = Boolean(info && info.connected);
             windowConnected = isConnected;
@@ -825,21 +941,6 @@
 
             if (windowInfoBox) {
                 windowInfoBox.style.display = isConnected ? 'block' : 'none';
-            }
-
-            if (preflightSummary) {
-                if (isConnected) {
-                    const width = info && info.width ? info.width : '??';
-                    const height = info && info.height ? info.height : '??';
-                    preflightSummary.textContent = info.message || `Ventana lista (${width}x${height})`;
-                } else {
-                    preflightSummary.textContent = (info && info.message) || 'Abre la mesa de All Bets Blackjack en Caliente.mx';
-                }
-            }
-
-            const startButton = document.getElementById('startButton');
-            if (startButton) {
-                startButton.disabled = !isConnected;
             }
         }
 
@@ -1033,12 +1134,16 @@
                 const result = await response.json();
 
                 if (result.window_detected !== undefined) {
+                    const message = result.window_detected
+                        ? (result.window_info ? `Ventana detectada: ${result.window_info.title || 'All Bets Blackjack'}` : 'Ventana detectada automáticamente')
+                        : 'Ventana del juego no detectada';
+                    setPreflightIndicator('window', result.window_detected ? 'ok' : 'fail', message);
                     updateWindowDisplay({
                         connected: result.window_detected,
                         title: result.window_info ? result.window_info.title : undefined,
                         width: result.window_info ? result.window_info.width : undefined,
                         height: result.window_info ? result.window_info.height : undefined,
-                        message: result.window_detected ? 'Ventana detectada automáticamente' : null,
+                        message,
                     });
                 }
 
@@ -1065,42 +1170,99 @@
             }
         }
 
+        async function runPreflight(showLog = true) {
+            if (preflightBusy) {
+                return;
+            }
+
+            preflightBusy = true;
+            setPreflightIndicator('calibration', 'pending', 'Verificando recursos...');
+            setPreflightIndicator('window', 'pending', 'Buscando ventana...');
+            if (showLog) {
+                updateSystemStatus('Ejecutando chequeo de pre-vuelo...', 'info');
+            }
+
+            try {
+                const response = await fetch('/preflight');
+                const data = await response.json();
+
+                const calibration = data.calibration || {};
+                const windowStatus = data.window || {};
+
+                setPreflightIndicator(
+                    'calibration',
+                    calibration.ok ? 'ok' : 'fail',
+                    calibration.message || (calibration.ok ? 'Calibración lista' : 'Calibración incompleta')
+                );
+
+                const windowMessage = windowStatus.message
+                    || (windowStatus.success ? 'Ventana lista' : 'Ventana del juego no encontrada');
+                setPreflightIndicator('window', windowStatus.success ? 'ok' : 'fail', windowMessage);
+
+                updateWindowDisplay({
+                    connected: Boolean(windowStatus.success),
+                    title: windowStatus.window_title,
+                    width: windowStatus.window ? windowStatus.window.width : undefined,
+                    height: windowStatus.window ? windowStatus.window.height : undefined,
+                    message: windowMessage,
+                });
+
+                if (showLog) {
+                    const level = data.ready ? 'success' : 'warning';
+                    const message = data.ready
+                        ? 'Pre-vuelo completado correctamente'
+                        : 'Pre-vuelo con pendientes. Revisa los indicadores.';
+                    updateSystemStatus(message, level);
+                }
+            } catch (error) {
+                setPreflightIndicator('calibration', 'fail', 'Error verificando calibración');
+                setPreflightIndicator('window', 'fail', 'Error detectando ventana');
+                if (showLog) {
+                    updateSystemStatus(`Error en pre-vuelo: ${error.message}`, 'error');
+                }
+            } finally {
+                preflightBusy = false;
+            }
+        }
+
         async function detectWindow(showLog = true) {
             if (preflightBusy) {
                 return;
             }
 
             preflightBusy = true;
-
             if (showLog) {
                 updateSystemStatus('Buscando ventana del juego...', 'info');
             }
+            setPreflightIndicator('window', 'pending', 'Buscando ventana...');
 
             try {
                 const response = await fetch('/detect_window', { method: 'POST' });
                 const result = await response.json();
 
                 if (result.success) {
+                    const message = result.message || `Ventana detectada: ${result.window_title}`;
+                    setPreflightIndicator('window', 'ok', message);
                     updateWindowDisplay({
                         connected: true,
                         title: result.window_title,
                         width: result.window ? result.window.width : undefined,
                         height: result.window ? result.window.height : undefined,
-                        message: `Ventana detectada: ${result.window_title}`,
+                        message,
                     });
                     if (showLog) {
-                        updateSystemStatus(`Ventana detectada: ${result.window_title}`, 'success');
+                        updateSystemStatus(message, 'success');
                     }
                 } else {
-                    updateWindowDisplay({
-                        connected: false,
-                        message: 'Ventana del juego no encontrada. Abre la mesa para continuar.',
-                    });
+                    const message = result.error || 'Ventana del juego no encontrada. Abre la mesa para continuar.';
+                    setPreflightIndicator('window', 'fail', message);
+                    updateWindowDisplay({ connected: false, message });
                     if (showLog) {
-                        updateSystemStatus('Ventana del juego no encontrada. Abrir Caliente.mx', 'warning');
+                        updateSystemStatus(message, 'warning');
                     }
                 }
             } catch (error) {
+                setPreflightIndicator('window', 'fail', 'Error detectando ventana');
                 if (showLog) {
                     updateSystemStatus(`Error detectando ventana: ${error.message}`, 'error');
                 }
@@ -1114,8 +1276,12 @@
         }
 
         async function startBot() {
-            if (!windowConnected) {
-                updateSystemStatus('Error: Primero detecta la ventana del juego', 'error');
+            if (!preflightStatus.calibration) {
+                updateSystemStatus('Error: completa la calibración antes de iniciar', 'error');
+                return;
+            }
+            if (!preflightStatus.window) {
+                updateSystemStatus('Error: detecta la ventana de All Bets Blackjack', 'error');
                 return;
             }
 
@@ -1132,14 +1298,21 @@
                 const result = await response.json();
 
                 if (result.status && result.status.includes('Bot iniciado')) {
-                    document.getElementById('startButton').disabled = true;
-                    document.getElementById('stopButton').disabled = false;
-                    document.getElementById('botStatus').textContent = 'Iniciando...';
+                    setBotActive(true);
+                    const statusElement = document.getElementById('botStatus');
+                    if (statusElement) {
+                        statusElement.textContent = 'Iniciando...';
+                    }
                     updateSystemStatus('Bot iniciado correctamente', 'success');
+                } else if (result.status && result.status.includes('ya está ejecutándose')) {
+                    setBotActive(true);
+                    updateSystemStatus('El bot ya estaba en ejecución', 'warning');
                 } else {
+                    setBotActive(false);
                     updateSystemStatus(`Error iniciando bot: ${result.error || 'Error desconocido'}`, 'error');
                 }
             } catch (error) {
+                setBotActive(false);
                 updateSystemStatus(`Error de conexión: ${error.message}`, 'error');
             }
         }
@@ -1151,9 +1324,11 @@
                 const response = await fetch('/stop', { method: 'POST' });
                 await response.json();
 
-                document.getElementById('startButton').disabled = false;
-                document.getElementById('stopButton').disabled = true;
-                document.getElementById('botStatus').textContent = 'Detenido';
+                setBotActive(false);
+                const statusElement = document.getElementById('botStatus');
+                if (statusElement) {
+                    statusElement.textContent = 'Detenido';
+                }
                 updateSystemStatus('Bot detenido correctamente', 'success');
                 fetchSystemStatus();
             } catch (error) {
@@ -1183,8 +1358,7 @@
                 const data = await response.json();
                 const message = data.message || 'Sistema detenido por emergencia';
                 addLogEntry(`🚨 ${message}`, 'error');
-                document.getElementById('startButton').disabled = false;
-                document.getElementById('stopButton').disabled = true;
+                setBotActive(false);
                 document.getElementById('botStatus').textContent = 'Detenido';
                 updateSystemStatus(message, 'error');
             } catch (error) {
@@ -1200,7 +1374,7 @@
         }
 
         async function startCalibration() {
-            if (!windowConnected) {
+            if (!preflightStatus.window) {
                 updateSystemStatus('Error: Primero detecta la ventana del juego', 'error');
                 return;
             }
@@ -1217,12 +1391,16 @@
                     updateSystemStatus('Calibración completada exitosamente', 'success');
                     document.getElementById('calibrationProgress').style.width = '100%';
                     document.getElementById('calibrationText').textContent = 'Calibración completada';
+                    setPreflightIndicator('calibration', 'ok', 'Calibración completada');
+                    await runPreflight(false);
                 } else {
                     updateSystemStatus(`Error en calibración: ${result.error || 'verifica el sistema'}`, 'error');
                     document.getElementById('calibrationText').textContent = 'Error en calibración';
+                    setPreflightIndicator('calibration', 'fail', 'Error en calibración');
                 }
             } catch (error) {
                 updateSystemStatus(`Error iniciando calibración: ${error.message}`, 'error');
+                setPreflightIndicator('calibration', 'fail', 'Error iniciando calibración');
             } finally {
                 isCalibrating = false;
             }
@@ -1232,6 +1410,7 @@
             document.getElementById('calibrationProgress').style.width = '0%';
             document.getElementById('calibrationText').textContent = 'Listo para calibrar';
             updateSystemStatus('Calibración reseteada', 'info');
+            setPreflightIndicator('calibration', 'pending', 'Listo para calibrar');
         }
 
         async function testSystems() {
@@ -1347,6 +1526,13 @@
         socket.on('status_update', data => {
             if (data.status) {
                 document.getElementById('botStatus').textContent = data.status;
+                const normalized = data.status.toLowerCase();
+                if (normalized.includes('iniciando') || normalized.includes('ejecutando') || normalized.includes('running')) {
+                    setBotActive(true);
+                }
+                if (normalized.includes('detenido') || normalized.includes('detener') || normalized.includes('stopped')) {
+                    setBotActive(false);
+                }
             }
 
             if (data.tc !== undefined) {

@@ -129,13 +129,14 @@ class HybridActuator:
         self.image_path = Path(image_path)
         self.window_detector = GameWindowDetector()
 
-        self.action_config: Dict[str, Dict[str, Union[str, Tuple[float, float], Tuple[int, int]]]] = {
+        self.action_config: Dict[str, Dict[str, Union[str, Tuple[float, float], Tuple[int, int], int]]] = {
             "HIT": {
                 "image": "hit_button.png",
                 "relative_coords": (0.75, 0.85),
                 "expected_size": (80, 40),
                 "search_area": (120, 120),
                 "description": "Botón PEDIR / HIT",
+                "target_type": "button",
             },
             "STAND": {
                 "image": "stand_button.png",
@@ -143,6 +144,7 @@ class HybridActuator:
                 "expected_size": (80, 40),
                 "search_area": (120, 120),
                 "description": "Botón PLANTARSE / STAND",
+                "target_type": "button",
             },
             "DOUBLE": {
                 "image": "double_button.png",
@@ -150,20 +152,42 @@ class HybridActuator:
                 "expected_size": (80, 40),
                 "search_area": (120, 120),
                 "description": "Botón DOBLAR / DOUBLE",
+                "target_type": "button",
             },
             "BET_25": {
                 "image": "chip_25.png",
                 "relative_coords": (0.45, 0.75),
-                "expected_size": (50, 50),
-                "search_area": (100, 100),
+                "expected_size": (60, 60),
+                "search_area": (120, 120),
                 "description": "Ficha de 25",
+                "target_type": "chip",
+                "value": 25,
             },
             "BET_100": {
                 "image": "chip_100.png",
                 "relative_coords": (0.55, 0.75),
-                "expected_size": (50, 50),
-                "search_area": (100, 100),
+                "expected_size": (60, 60),
+                "search_area": (120, 120),
                 "description": "Ficha de 100",
+                "target_type": "chip",
+                "value": 100,
+            },
+            "BET_500": {
+                "image": "chip_500.png",
+                "relative_coords": (0.65, 0.75),
+                "expected_size": (60, 60),
+                "search_area": (140, 140),
+                "description": "Ficha de 500",
+                "target_type": "chip",
+                "value": 500,
+            },
+            "BETTING_AREA": {
+                "image": "betting_area.png",
+                "relative_coords": (0.50, 0.63),
+                "expected_size": (180, 180),
+                "search_area": (320, 220),
+                "description": "Área principal de apuesta",
+                "target_type": "betting_area",
             },
         }
 
@@ -173,6 +197,16 @@ class HybridActuator:
             "DOUBLE": (0.65, 0.85),
             "BET_25": (0.45, 0.75),
             "BET_100": (0.55, 0.75),
+            "BET_500": (0.65, 0.75),
+            "BETTING_AREA": (0.50, 0.65),
+        }
+
+        self.bet_chip_values: Dict[str, int] = {
+            key: int(config["value"])
+            for key, config in self.action_config.items()
+            if isinstance(config, dict)
+            and config.get("target_type") == "chip"
+            and isinstance(config.get("value"), (int, float))
         }
 
         self._last_action_snapshot: Optional[np.ndarray] = None
@@ -287,8 +321,12 @@ class HybridActuator:
         self.mouse.click(int(target_location[0]), int(target_location[1]))
         return True
 
-    def _execute_bet_action(self, game_window: object, payload: Dict[str, Union[str, int, List[Dict[str, Union[str, int]]]]]) -> bool:
-        chip_plan = []
+    def _execute_bet_action(
+        self,
+        game_window: object,
+        payload: Dict[str, Union[str, int, List[Dict[str, Union[str, int]]]]],
+    ) -> bool:
+        chip_plan: List[Dict[str, Union[str, int]]] = []
         raw_plan = payload.get("chip_plan") if isinstance(payload, dict) else None
         if isinstance(raw_plan, list) and raw_plan:
             chip_plan = [entry for entry in raw_plan if isinstance(entry, dict)]
@@ -304,7 +342,16 @@ class HybridActuator:
                 click_count = int(clicks)
             except (TypeError, ValueError):
                 click_count = 1
-            chip_plan = [{"chip_type": chip_type, "count": max(1, click_count)}]
+            chip_plan = [
+                {
+                    "chip_type": chip_type,
+                    "count": max(1, click_count),
+                    "chip_value": self.bet_chip_values.get(chip_type, 0),
+                }
+            ]
+
+        betting_target: Optional[Tuple[int, int]] = None
+        executed_steps = 0
 
         for entry in chip_plan:
             chip_type = entry.get("chip_type") if isinstance(entry, dict) else None
@@ -313,23 +360,44 @@ class HybridActuator:
                 continue
 
             try:
-                count = int(entry.get("count", 1)) if isinstance(entry, dict) else 1
+                count = int(entry.get("count", entry.get("clicks", 1))) if isinstance(entry, dict) else 1
             except (TypeError, ValueError):
                 count = 1
             if count <= 0:
                 continue
+
+            chip_value = 0
+            raw_value = entry.get("chip_value") if isinstance(entry, dict) else None
+            if isinstance(raw_value, (int, float)):
+                chip_value = int(raw_value)
+            elif chip_type in self.bet_chip_values:
+                chip_value = self.bet_chip_values[chip_type]
 
             target_location = self._find_target_hybrid(game_window, chip_type)
             if not target_location:
                 print(f"  ❌ No se encontró ficha: {chip_type}")
                 return False
 
-            print(f"  💰 Haciendo {count} clics en {chip_type} en {target_location}")
-            for _ in range(count):
-                self.mouse.click(int(target_location[0]), int(target_location[1]))
-                time.sleep(0.1)
+            print(
+                f"  💰 Seleccionando {chip_type} (${chip_value or 'N/A'}) en {target_location} para {count} clics en mesa"
+            )
+            self.mouse.click(int(target_location[0]), int(target_location[1]))
+            time.sleep(0.12)
 
-        return True
+            if betting_target is None:
+                betting_target = self._find_target_hybrid(game_window, "BETTING_AREA")
+            if not betting_target:
+                print("  ❌ Área de apuesta no localizada")
+                return False
+
+            for click_index in range(count):
+                self.mouse.click(int(betting_target[0]), int(betting_target[1]))
+                time.sleep(0.12)
+                print(f"    ▶️ Click {click_index + 1}/{count} en el círculo de apuestas")
+
+            executed_steps += 1
+
+        return executed_steps > 0
 
     # ------------------------------------------------------------------
     # Métodos de búsqueda
@@ -396,6 +464,10 @@ class HybridActuator:
         self, x: int, y: int, config: Dict[str, Union[str, Tuple[float, float], Tuple[int, int]]]
     ) -> bool:
         try:
+            target_type = config.get("target_type") if isinstance(config, dict) else None
+            if target_type == "betting_area":
+                return True
+
             region_size = 60
             screen_size = pyautogui.size()
             half = region_size // 2
@@ -792,6 +864,7 @@ class HybridActuator:
             "cached_window": self.window_detector.cached_window is not None,
             "cache_age": cache_age,
             "available_actions": list(self.action_config.keys()),
+            "chip_catalog": self.get_chip_catalog(),
         }
         if game_window:
             status.update(
@@ -815,13 +888,18 @@ class HybridActuator:
                 chip_type = entry.get("chip_type")
                 if not isinstance(chip_type, str):
                     continue
+                clicks_raw = entry.get("count", entry.get("clicks", 1))
                 try:
-                    count = int(entry.get("count", 1))
+                    count = int(clicks_raw)
                 except (TypeError, ValueError):
                     count = 1
                 if count <= 0:
                     continue
-                plan.append({"chip_type": chip_type, "count": count})
+                normalized: Dict[str, int] = {"chip_type": chip_type, "count": count}
+                chip_value = self.bet_chip_values.get(chip_type)
+                if chip_value is not None:
+                    normalized["chip_value"] = chip_value
+                plan.append(normalized)
 
         if not plan and isinstance(payload, dict):
             chip_type = payload.get("chip_type") or payload.get("chip")
@@ -830,9 +908,20 @@ class HybridActuator:
                     clicks = int(payload.get("clicks", 1))
                 except (TypeError, ValueError):
                     clicks = 1
-                plan.append({"chip_type": chip_type, "count": max(1, clicks)})
+                normalized = {"chip_type": chip_type, "count": max(1, clicks)}
+                chip_value = self.bet_chip_values.get(chip_type)
+                if chip_value is not None:
+                    normalized["chip_value"] = chip_value
+                plan.append(normalized)
 
         return plan
+
+    def get_chip_catalog(self) -> List[Tuple[str, int]]:
+        catalog: List[Tuple[str, int]] = []
+        for key, value in self.bet_chip_values.items():
+            catalog.append((key, int(value)))
+        catalog.sort(key=lambda item: item[1], reverse=True)
+        return catalog
 
 
 class SafetyWrapper:
