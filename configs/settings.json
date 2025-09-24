@@ -16,10 +16,10 @@
   },
   "vision": {
     "rois": {
-      "dealer": [300, 100, 200, 150],
-      "shared": [250, 300, 300, 150],
-      "others": [100, 300, 150, 150],
-      "text": [0, 0, 800, 50]
+      "dealer": [870, 180, 180, 150],
+      "player_main": [850, 620, 220, 180],
+      "game_status_text": [750, 300, 420, 100],
+      "others_cards_area": [150, 400, 1620, 300]
     },
     "thresholds": {
       "card_confidence": 0.85,
