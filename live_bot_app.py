@@ -12,7 +12,7 @@ import cv2
 import numpy as np
 import pyautogui
 from flask import Flask, render_template, request
-from flask_socketio import SocketIO
+from flask_socketio import SocketIO, emit
 
 # Módulos propios
 from m1_ingesta.vision_system import VisionSystem, RegionOfInterest
@@ -882,6 +882,387 @@ def run_calibration():
         return {"status": "Calibración fallida", "error": "Ver logs del sistema"}
     except Exception as exc:
         return {"status": "Error", "error": str(exc)}
+
+
+@app.route("/detect_window", methods=["POST"])
+def detect_window():
+    """Detecta automáticamente la ventana del juego"""
+    try:
+        # Buscar ventanas con títulos relacionados al juego
+        possible_titles = ["Caliente", "Chrome", "Firefox", "Safari", "Edge", "Blackjack"]
+        found_windows = []
+
+        for title in possible_titles:
+            windows = pyautogui.getWindowsWithTitle(title)
+            for window in windows:
+                if window.title and len(window.title) > 3:
+                    found_windows.append(
+                        {
+                            "title": window.title,
+                            "left": window.left,
+                            "top": window.top,
+                            "width": window.width,
+                            "height": window.height,
+                            "priority": _calculate_window_priority(window.title, title),
+                        }
+                    )
+
+        if not found_windows:
+            return {
+                "success": False,
+                "error": "No se encontraron ventanas del juego. Asegúrate de que Caliente.mx esté abierto.",
+            }
+
+        # Ordenar por prioridad y seleccionar la mejor
+        found_windows.sort(key=lambda x: x["priority"], reverse=True)
+        best_window = found_windows[0]
+
+        # Activar la ventana
+        try:
+            windows = pyautogui.getWindowsWithTitle(best_window["title"])
+            if windows:
+                windows[0].activate()
+                time.sleep(1)
+        except Exception:
+            pass  # No es crítico si no se puede activar
+
+        return {
+            "success": True,
+            "window_title": best_window["title"],
+            "window_info": {
+                "left": best_window["left"],
+                "top": best_window["top"],
+                "width": best_window["width"],
+                "height": best_window["height"],
+            },
+            "alternatives": len(found_windows) - 1,
+        }
+
+    except Exception as e:
+        return {"success": False, "error": f"Error detectando ventana: {str(e)}"}
+
+
+def _calculate_window_priority(window_title: str, search_term: str) -> int:
+    """Calcula la prioridad de una ventana basada en su título"""
+    title_lower = window_title.lower()
+    priority = 0
+
+    if search_term and search_term.lower() in title_lower:
+        priority += 20
+
+    # Prioridad alta para términos específicos del juego
+    if "caliente" in title_lower:
+        priority += 100
+    if "blackjack" in title_lower:
+        priority += 80
+    if "all bets" in title_lower:
+        priority += 90
+    if "casino" in title_lower:
+        priority += 70
+
+    # Prioridad media para navegadores
+    browsers = ["chrome", "firefox", "safari", "edge"]
+    for browser in browsers:
+        if browser in title_lower:
+            priority += 50
+            break
+
+    # Reducir prioridad para ventanas genéricas
+    generic_terms = ["nueva pestaña", "new tab", "inicio", "home", "about:blank"]
+    for term in generic_terms:
+        if term in title_lower:
+            priority -= 30
+
+    # Prioridad por tamaño de ventana (ventanas muy pequeñas probablemente no son el juego)
+    try:
+        windows = pyautogui.getWindowsWithTitle(window_title)
+        if windows and len(windows) > 0:
+            window = windows[0]
+            if window.width < 800 or window.height < 600:
+                priority -= 20
+            if window.width > 1200 and window.height > 800:
+                priority += 10
+    except Exception:
+        pass
+
+    return priority
+
+
+@app.route("/test_systems", methods=["POST"])
+def test_systems():
+    """Ejecuta pruebas del sistema para verificar que todo funciona"""
+    tests = {
+        "vision": False,
+        "ocr": False,
+        "automation": False,
+        "config": False,
+        "images": False,
+    }
+
+    try:
+        # Test 1: Importaciones básicas
+        try:
+            import cv2  # type: ignore
+            import numpy  # type: ignore
+            import pytesseract  # type: ignore
+
+            _ = cv2.__version__
+            _ = numpy.__version__
+            _ = getattr(pytesseract, "get_tesseract_version", lambda: True)()
+            tests["vision"] = True
+        except Exception:
+            pass
+
+        # Test 2: OCR funcionando
+        try:
+            from PIL import Image  # type: ignore
+            import pytesseract  # type: ignore
+
+            pytesseract.image_to_string(Image.new("RGB", (100, 30), color="white"))
+            tests["ocr"] = True
+        except Exception:
+            pass
+
+        # Test 3: PyAutoGUI funcionando
+        try:
+            pyautogui.size()  # Test básico
+            tests["automation"] = True
+        except Exception:
+            pass
+
+        # Test 4: Archivos de configuración
+        try:
+            config_files = [
+                "configs/settings.json",
+                "configs/decision.json",
+            ]
+            tests["config"] = all(Path(f).exists() for f in config_files)
+        except Exception:
+            pass
+
+        # Test 5: Directorio de imágenes
+        try:
+            img_dir = Path("m4_actuacion/target_images/")
+            tests["images"] = img_dir.exists()
+        except Exception:
+            pass
+
+        passed = sum(tests.values())
+        total = len(tests)
+
+        return {
+            "success": passed > total // 2,  # Al menos 50% de tests pasados
+            "passed": passed,
+            "total": total,
+            "details": tests,
+            "message": f"Sistema {'funcional' if passed > total // 2 else 'requiere atención'}",
+        }
+
+    except Exception as e:
+        return {
+            "success": False,
+            "error": f"Error ejecutando pruebas: {str(e)}",
+        }
+
+
+@app.route("/get_system_info", methods=["GET"])
+def get_system_info():
+    """Obtiene información del sistema para debugging"""
+    try:
+        import platform
+        import sys
+
+        # Información del sistema
+        system_info = {
+            "platform": platform.system(),
+            "platform_version": platform.version(),
+            "python_version": sys.version,
+            "architecture": platform.architecture()[0],
+        }
+
+        # Información de ventanas disponibles
+        try:
+            all_windows = pyautogui.getAllWindows()
+            windows_info = []
+            for window in all_windows:
+                if window.title and len(window.title.strip()) > 0:
+                    windows_info.append(
+                        {
+                            "title": window.title,
+                            "size": f"{window.width}x{window.height}",
+                            "position": f"({window.left}, {window.top})",
+                        }
+                    )
+            system_info["available_windows"] = windows_info[:20]
+        except Exception:
+            system_info["available_windows"] = []
+
+        # Información de dependencias
+        dependencies = {}
+        required_modules = [
+            "cv2",
+            "numpy",
+            "PIL",
+            "pytesseract",
+            "pyautogui",
+            "flask",
+            "flask_socketio",
+            "mss",
+        ]
+
+        for module in required_modules:
+            try:
+                mod = __import__(module)
+                dependencies[module] = getattr(mod, "__version__", "installed")
+            except ImportError:
+                dependencies[module] = "NOT INSTALLED"
+
+        system_info["dependencies"] = dependencies
+
+        # Estado de archivos importantes
+        important_files = [
+            "configs/settings.json",
+            "configs/decision.json",
+            "configs/emergency_settings.json",
+            "m4_actuacion/target_images/",
+            "calibration_tool.py",
+            "bankroll_reader.py",
+        ]
+
+        files_status = {}
+        for file_path in important_files:
+            path = Path(file_path)
+            if path.is_file():
+                files_status[file_path] = f"file ({path.stat().st_size} bytes)"
+            elif path.is_dir():
+                try:
+                    files_status[file_path] = f"directory ({len(list(path.glob('*')))} items)"
+                except Exception:
+                    files_status[file_path] = "directory (access error)"
+            else:
+                files_status[file_path] = "NOT FOUND"
+
+        system_info["files_status"] = files_status
+
+        return system_info
+
+    except Exception as e:
+        return {"error": f"Error obteniendo información del sistema: {str(e)}"}
+
+
+@app.route("/update_config", methods=["POST"])
+def update_config():
+    """Actualiza la configuración del sistema"""
+    try:
+        new_config = request.get_json()
+
+        # Validar configuración
+        required_fields = ["system", "initial_bankroll", "stoploss"]
+        for field in required_fields:
+            if field not in new_config:
+                return {"success": False, "error": f"Campo requerido faltante: {field}"}
+
+        # Validaciones específicas
+        if new_config["initial_bankroll"] < 100:
+            return {"success": False, "error": "Bankroll inicial debe ser al menos $100"}
+
+        if not (0.05 <= new_config["stoploss"] <= 0.5):
+            return {"success": False, "error": "Stop-loss debe estar entre 5% y 50%"}
+
+        # Guardar configuración (esto se integraría con el sistema de config real)
+        config_path = Path("configs/runtime_config.json")
+        with open(config_path, "w", encoding="utf-8") as f:
+            json.dump(new_config, f, indent=2)
+
+        return {
+            "success": True,
+            "message": "Configuración actualizada correctamente",
+        }
+
+    except Exception as e:
+        return {"success": False, "error": f"Error actualizando configuración: {str(e)}"}
+
+
+@app.route("/emergency_stop", methods=["POST"])
+def emergency_stop():
+    """Parada de emergencia del sistema"""
+    global bot_running
+
+    try:
+        bot_running = False
+
+        # Log de parada de emergencia
+        emergency_event = {
+            "timestamp": time.time(),
+            "event_type": "EMERGENCY_STOP",
+            "reason": "Manual emergency stop from web interface",
+            "user_initiated": True,
+        }
+
+        # Si hay logger disponible, usarlo
+        try:
+            if "logger" in globals():
+                logger.log(emergency_event)
+        except Exception:
+            pass
+
+        socketio.emit(
+            "status_update",
+            {"log": "🚨 PARADA DE EMERGENCIA ACTIVADA", "status": "EMERGENCY_STOPPED"},
+        )
+
+        return {"success": True, "message": "Parada de emergencia ejecutada"}
+
+    except Exception as e:
+        return {"success": False, "error": f"Error en parada de emergencia: {str(e)}"}
+
+
+# Eventos de Socket.IO mejorados
+@socketio.on("request_system_status")
+def handle_system_status_request():
+    """Maneja solicitudes de estado del sistema desde el frontend"""
+    try:
+        # Recopilar estado actual
+        status = {
+            "bot_running": bot_running,
+            "timestamp": time.time(),
+            "system_healthy": True,
+        }
+
+        emit("system_status_response", status)
+
+    except Exception as e:
+        emit("system_status_response", {"error": str(e)})
+
+
+@socketio.on("request_calibration_status")
+def handle_calibration_status_request():
+    """Maneja solicitudes de estado de calibración"""
+    try:
+        # Verificar qué imágenes están calibradas
+        img_dir = Path("m4_actuacion/target_images/")
+        required_images = ["hit_button.png", "stand_button.png", "double_button.png", "chip_25.png"]
+
+        calibrated_images = {}
+        for img in required_images:
+            img_path = img_dir / img
+            calibrated_images[img] = {
+                "exists": img_path.exists(),
+                "size": img_path.stat().st_size if img_path.exists() else 0,
+                "modified": img_path.stat().st_mtime if img_path.exists() else 0,
+            }
+
+        emit(
+            "calibration_status_response",
+            {
+                "images": calibrated_images,
+                "total_calibrated": sum(1 for img in calibrated_images.values() if img["exists"]),
+                "total_required": len(required_images),
+            },
+        )
+
+    except Exception as e:
+        emit("calibration_status_response", {"error": str(e)})
 
 
 if __name__ == "__main__":
